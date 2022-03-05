@@ -668,20 +668,16 @@ impl Kernel {
         process: &dyn process::Process,
         syscall: Syscall,
     ) {
-        // Hook for process debugging.
+        // 用于进程调试的钩子。
         process.debug_syscall_called(syscall);
 
-        // Enforce platform-specific syscall filtering here.
+        // 在此处强制执行特定于平台的系统调用过滤。
         //
-        // Before continuing to handle non-yield syscalls the kernel first
-        // checks if the platform wants to block that syscall for the process,
-        // and if it does, sets a return value which is returned to the calling
-        // process.
+        // 在继续处理 non-yield 系统调用之前，内核首先检查平台是否要阻止该进程的系统调用，
+        // 如果是，则设置一个返回值，该值返回给调用进程。
         //
-        // Filtering a syscall (i.e. blocking the syscall from running) does not
-        // cause the process to lose its timeslice. The error will be returned
-        // immediately (assuming the process has not already exhausted its
-        // timeslice) allowing the process to decide how to handle the error.
+        // 过滤系统调用（即阻止系统调用运行）不会导致进程丢失其时间片。
+        // 错误将立即返回（假设进程尚未耗尽其时间片），允许进程决定如何处理错误。
         match syscall {
             Syscall::Yield {
                 which: _,
@@ -735,34 +731,26 @@ impl Kernel {
                     debug!("[{:?}] yield. which: {}", process.processid(), which);
                 }
                 if which > (YieldCall::Wait as usize) {
-                    // Only 0 and 1 are valid, so this is not a valid yield
-                    // system call, Yield does not have a return value because
-                    // it can push a function call onto the stack; just return
-                    // control to the process.
+                    // 只有 0 和 1 有效，所以这不是有效的 yield 系统调用，Yield 没有返回值，
+                    // 因为它可以将函数调用压入堆栈； 只需将控制权交还给Process即可。
                     return;
                 }
                 let wait = which == (YieldCall::Wait as usize);
-                // If this is a yield-no-wait AND there are no pending tasks,
-                // then return immediately. Otherwise, go into the yielded state
-                // and execute tasks now or when they arrive.
+                // 如果这是一个 yield-no-wait 并且没有待处理的任务，则立即返回。
+                // 否则，进入yield状态并立即执行任务或在任务到达时执行。
                 let return_now = !wait && !process.has_tasks();
                 if return_now {
-                    // Set the "did I trigger upcalls" flag to be 0, return
-                    // immediately. If address is invalid does nothing.
+                    // 将“我是否触发了Upcall”标志设置为 0，立即返回。如果地址无效，则什么也不做。
                     //
                     // # Safety
                     //
-                    // This is fine as long as no references to the process's
-                    // memory exist. We do not have a reference, so we can
-                    // safely call `set_byte()`.
+                    // 只要不存在对进程内存的引用，这很好。 我们没有引用，所以我们可以安全地调用`set_byte()`。
                     unsafe {
                         process.set_byte(address, 0);
                     }
                 } else {
-                    // There are already enqueued upcalls to execute or we
-                    // should wait for them: handle in the next loop iteration
-                    // and set the "did I trigger upcalls" flag to be 1. If
-                    // address is invalid does nothing.
+                    // 已经有排队的Upcall要执行，或者我们应该等待它们：在下一个循环迭代中
+                    // 处理并将“我是否触发Upcall”标志设置为 1。如果地址无效，则不执行任何操作。
                     //
                     // # Safety
                     //
@@ -781,26 +769,22 @@ impl Kernel {
                 upcall_ptr,
                 appdata,
             } => {
-                // A upcall is identified as a tuple of the driver number and
-                // the subdriver number.
+                // upcall 被标识为驱动程序编号和子驱动程序编号的元组.
                 let upcall_id = UpcallId {
                     driver_num: driver_number,
                     subscribe_num: subdriver_number,
                 };
 
-                // First check if `upcall_ptr` is null. A null `upcall_ptr` will
-                // result in `None` here and represents the special
-                // "unsubscribe" operation.
+                // 首先检查 `upcall_ptr` 是否为空
+                // 一个空的 `upcall_ptr` 将在此处产生 `None` 并表示特殊的“取消订阅”操作。
                 let ptr = NonNull::new(upcall_ptr);
 
-                // For convenience create an `Upcall` type now. This is just a
-                // data structure and doesn't do any checking or conversion.
+                // 为方便起见，现在创建一个 `Upcall` 类型。 这只是一个数据结构，不做任何检查或转换。
                 let upcall = Upcall::new(process.processid(), upcall_id, appdata, ptr);
 
-                // If `ptr` is not null, we must first verify that the upcall
-                // function pointer is within process accessible memory. Per
-                // TRD104:
-                //
+                // 如果 `ptr` 不为 null，我们必须首先验证 upcall 函数指针是否在进程可访问内存中。
+                // 根据 TRD104：
+
                 // > If the passed upcall is not valid (is outside process
                 // > executable memory...), the kernel...MUST immediately return
                 // > a failure with a error code of `INVALID`.
@@ -812,39 +796,26 @@ impl Kernel {
                     }
                 });
 
-                // If the upcall is either null or valid, then we continue
-                // handling the upcall.
+                // 如果 upcall 为 null 或有效，那么我们继续处理 upcall。
                 let rval = match rval1 {
                     Some(err) => upcall.into_subscribe_failure(err),
                     None => {
-                        // At this point we must save the new upcall and return
-                        // the old. The upcalls are stored by the core kernel in
-                        // the grant region so we can guarantee a correct upcall
-                        // swap. However, we do need help with initially
-                        // allocating the grant if this driver has never been
-                        // used before.
+                        // 此时我们必须保存新的 upcall 并返回旧的。
+                        // Upcall由核心内核存储在Grant区域中，因此我们可以保证正确的Upcall交换。
+                        // 但是，如果以前从未使用过此驱动程序，我们确实需要帮助来初始分配Grant。
                         //
-                        // To avoid the overhead with checking for process
-                        // liveness and grant allocation, we assume the grant is
-                        // initially allocated. If it turns out it isn't we ask
-                        // the capsule to allocate the grant.
+                        // 为了避免检查Process liveness 和Grant分配的开销，我们假设Grant是最初分配的。
+                        // 如果事实证明不是我们要求Capsule allocate Grant。
                         match crate::grant::subscribe(process, upcall) {
                             Ok(upcall) => upcall.into_subscribe_success(),
                             Err((upcall, err @ ErrorCode::NOMEM)) => {
-                                // If we get a memory error, we always try to
-                                // allocate the grant since this could be the
-                                // first time the grant is getting accessed.
+                                // 如果我们遇到内存错误，我们总是尝试分配Grant，因为这可能是第一次访问Grant。
                                 match try_allocate_grant(resources, driver_number, process) {
                                     AllocResult::NewAllocation => {
-                                        // Now we try again. It is possible that
-                                        // the capsule did not actually allocate
-                                        // the grant, at which point this will
-                                        // fail again and we return an error to
-                                        // userspace.
+                                        // 现在我们再试一次。有可能Capsule实际上没有分配Grant，
+                                        // 此时这将再次失败，我们将错误返回给用户空间。
                                         match crate::grant::subscribe(process, upcall) {
-                                            // An Ok() returns the previous
-                                            // upcall, while Err() returns the
-                                            // one that was just passed.
+                                            // Ok() 返回上一个Upcall，而 Err() 返回刚刚传递的Upcall。
                                             Ok(upcall) => upcall.into_subscribe_success(),
                                             Err((upcall, err)) => {
                                                 upcall.into_subscribe_failure(err)
@@ -852,8 +823,7 @@ impl Kernel {
                                         }
                                     }
                                     alloc_failure => {
-                                        // We didn't actually create a new
-                                        // alloc, so just error.
+                                        // 我们实际上并没有创建一个新的分配，所以只是错误。
                                         match (config::CONFIG.trace_syscalls, alloc_failure) {
                                             (true, AllocResult::NoAllocation) => {
                                                 debug!("[{:?}] WARN driver #{:x} did not allocate grant",
@@ -874,13 +844,11 @@ impl Kernel {
                     }
                 };
 
-                // Per TRD104, we only clear upcalls if the subscribe will
-                // return success. At this point we know the result and clear if
-                // necessary.
+                // 根据 TRD104，我们仅在订阅返回成功时才清除Upcall。
+                // 在这一点上，我们知道结果并在必要时清除。
                 if rval.is_success() {
-                    // Only one upcall should exist per tuple. To ensure that
-                    // there are no pending upcalls with the same identifier but
-                    // with the old function pointer, we clear them now.
+                    // 每个元组应该只存在一个Upcall。
+                    // 为了确保没有具有相同标识符但使用旧函数指针的Pending Upcall，我们现在清除它们。
                     process.remove_pending_upcalls(upcall_id);
                 }
 
@@ -932,13 +900,11 @@ impl Kernel {
                 allow_address,
                 allow_size,
             } => {
-                // Try to create an appropriate [`ReadWriteProcessBuffer`]. This
-                // method will ensure that the memory in question is located in
-                // the process-accessible memory space.
+                // 尝试创建一个适当的 [`ReadWriteProcessBuffer`]。
+                // 这种方法将确保有问题的内存位于进程可访问的内存空间中。
                 let res = match process.build_readwrite_process_buffer(allow_address, allow_size) {
                     Ok(rw_pbuf) => {
-                        // Creating the [`ReadWriteProcessBuffer`] worked, try
-                        // to set in grant.
+                        // 创建 [`ReadWriteProcessBuffer`] 有效，尝试在Grant中设置。
                         match crate::grant::allow_rw(
                             process,
                             driver_number,
@@ -950,13 +916,10 @@ impl Kernel {
                                 SyscallReturn::AllowReadWriteSuccess(ptr, len)
                             }
                             Err((rw_pbuf, err @ ErrorCode::NOMEM)) => {
-                                // If we get a memory error, we always try to
-                                // allocate the grant since this could be the
-                                // first time the grant is getting accessed.
+                                // 如果我们遇到内存错误，我们总是尝试分配Grant，因为这可能是第一次访问Grant。
                                 match try_allocate_grant(resources, driver_number, process) {
                                     AllocResult::NewAllocation => {
-                                        // If we actually allocated a new grant,
-                                        // try again and honor the result.
+                                        // 如果我们真的分配了新的Grant，请再试一次并尊重结果。
                                         match crate::grant::allow_rw(
                                             process,
                                             driver_number,
@@ -999,9 +962,7 @@ impl Kernel {
                         }
                     }
                     Err(allow_error) => {
-                        // There was an error creating the
-                        // [`ReadWriteProcessBuffer`]. Report back to the
-                        // process with the original parameters.
+                        // 创建 [`ReadWriteProcessBuffer`] 时出错。 使用原始参数向Process报告。
                         SyscallReturn::AllowReadWriteFailure(allow_error, allow_address, allow_size)
                     }
                 };
@@ -1029,34 +990,24 @@ impl Kernel {
                     .syscall_driver_lookup()
                     .with_driver(driver_number, |driver| match driver {
                         Some(d) => {
-                            // Try to create an appropriate
-                            // [`UserspaceReadableProcessBuffer`]. This method
-                            // will ensure that the memory in question is
-                            // located in the process-accessible memory space.
+                            // 尝试创建一个合适的 [`UserspaceReadableProcessBuffer`]。
+                            // 这种方法将确保有问题的内存位于进程可访问的内存空间中。
                             match process.build_readwrite_process_buffer(allow_address, allow_size)
                             {
                                 Ok(rw_pbuf) => {
-                                    // Creating the
-                                    // [`UserspaceReadableProcessBuffer`]
-                                    // worked, provide it to the capsule.
+                                    //创建 [`UserspaceReadableProcessBuffer`] 工作，将其提供给Capsule。
                                     match d.allow_userspace_readable(
                                         process.processid(),
                                         subdriver_number,
                                         rw_pbuf,
                                     ) {
                                         Ok(returned_pbuf) => {
-                                            // The capsule has accepted the
-                                            // allow operation. Pass the
-                                            // previous buffer information back
-                                            // to the process.
+                                            // Capsule已接受允许操作。将先前的缓冲区信息传递回进程。
                                             let (ptr, len) = returned_pbuf.consume();
                                             SyscallReturn::UserspaceReadableAllowSuccess(ptr, len)
                                         }
                                         Err((rejected_pbuf, err)) => {
-                                            // The capsule has rejected the
-                                            // allow operation. Pass the new
-                                            // buffer information back to the
-                                            // process.
+                                            // Capsule拒绝了允许操作。 将新的缓冲区信息传递回进程。
                                             let (ptr, len) = rejected_pbuf.consume();
                                             SyscallReturn::UserspaceReadableAllowFailure(
                                                 err, ptr, len,
@@ -1065,9 +1016,7 @@ impl Kernel {
                                     }
                                 }
                                 Err(allow_error) => {
-                                    // There was an error creating the
-                                    // [`UserspaceReadableProcessBuffer`].
-                                    // Report back to the process.
+                                    // 创建 [`UserspaceReadableProcessBuffer`] 时出错。 向进程报告。
                                     SyscallReturn::UserspaceReadableAllowFailure(
                                         allow_error,
                                         allow_address,
@@ -1103,13 +1052,11 @@ impl Kernel {
                 allow_address,
                 allow_size,
             } => {
-                // Try to create an appropriate [`ReadOnlyProcessBuffer`]. This
-                // method will ensure that the memory in question is located in
-                // the process-accessible memory space.
+                // 尝试创建一个适当的 [`ReadOnlyProcessBuffer`]。
+                // 这种方法将确保有问题的内存位于进程可访问的内存空间中。
                 let res = match process.build_readonly_process_buffer(allow_address, allow_size) {
                     Ok(ro_pbuf) => {
-                        // Creating the [`ReadOnlyProcessBuffer`] worked, try to
-                        // set in grant.
+                        // 创建 [`ReadOnlyProcessBuffer`] 有效，尝试在Grant中设置。
                         match crate::grant::allow_ro(
                             process,
                             driver_number,
@@ -1195,12 +1142,11 @@ impl Kernel {
                 which,
                 completion_code,
             } => match which {
-                // The process called the `exit-terminate` system call.
+                // 进程调用了 `exit-terminate` 系统调用。
                 0 => process.terminate(Some(completion_code as u32)),
-                // The process called the `exit-restart` system call.
+                // 该进程称为“exit-restart”系统调用。
                 1 => process.try_restart(Some(completion_code as u32)),
-                // The process called an invalid variant of the Exit
-                // system call class.
+                // 进程调用了 Exitsystem 调用类的无效变体。
                 _ => process.set_syscall_return_value(SyscallReturn::Failure(ErrorCode::NOSUPPORT)),
             },
         }

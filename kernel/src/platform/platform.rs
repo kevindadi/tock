@@ -1,4 +1,4 @@
-//! Interfaces for implementing boards in Tock.
+//! Tock 中实现板的接口。
 
 use crate::errorcode;
 use crate::platform::chip::Chip;
@@ -10,48 +10,38 @@ use crate::syscall;
 use crate::syscall_driver::SyscallDriver;
 use tock_tbf::types::CommandPermissions;
 
-/// Combination trait that boards provide to the kernel that includes all of
-/// the extensible operations the kernel supports.
+/// 开发板提供给内核的组合特性，包括内核支持的所有可扩展操作.
 ///
-/// This is the primary method for configuring the kernel for a specific board.
+/// 这是为特定板配置内核的主要方法。
 pub trait KernelResources<C: Chip> {
-    /// The implementation of the system call dispatch mechanism the kernel
-    /// will use.
+    /// 内核将使用的系统调用调度机制的实现。
     type SyscallDriverLookup: SyscallDriverLookup;
 
-    /// The implementation of the system call filtering mechanism the kernel
-    /// will use.
+    /// 内核将使用的系统调用过滤机制的实现。
     type SyscallFilter: SyscallFilter;
 
-    /// The implementation of the process fault handling mechanism the kernel
-    /// will use.
+    /// 内核将使用的进程故障处理机制的实现。
     type ProcessFault: ProcessFault;
 
-    /// The implementation of the context switch callback handler
-    /// the kernel will use.
+    /// 内核将使用的上下文切换回调处理程序的实现。
     type ContextSwitchCallback: ContextSwitchCallback;
 
-    /// The implementation of the scheduling algorithm the kernel will use.
+    /// 内核将使用的调度算法的实现。
     type Scheduler: Scheduler<C>;
 
-    /// The implementation of the timer used to create the timeslices provided
-    /// to applications.
+    /// 用于创建提供给应用程序的时间片的计时器的实现。
     type SchedulerTimer: scheduler_timer::SchedulerTimer;
 
-    /// The implementation of the WatchDog timer used to monitor the running
-    /// of the kernel.
+    /// WatchDog 计时器的实现用于监视内核的运行。
     type WatchDog: watchdog::WatchDog;
 
-    /// Returns a reference to the implementation of the SyscallDriverLookup this
-    /// platform will use to route syscalls.
+    /// 返回对该平台将用于route syscalls的 SyscallDriverLookup 实现的引用。
     fn syscall_driver_lookup(&self) -> &Self::SyscallDriverLookup;
 
-    /// Returns a reference to the implementation of the SyscallFilter this
-    /// platform wants the kernel to use.
+    /// 返回对该平台希望内核使用的 SyscallFilter 实现的引用。
     fn syscall_filter(&self) -> &Self::SyscallFilter;
 
-    /// Returns a reference to the implementation of the ProcessFault handler
-    /// this platform wants the kernel to use.
+    /// 返回对此平台希望内核使用的 ProcessFault 处理程序的实现的引用。
     fn process_fault(&self) -> &Self::ProcessFault;
 
     /// Returns a reference to the implementation of the Scheduler this platform

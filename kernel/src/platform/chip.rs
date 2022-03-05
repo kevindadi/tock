@@ -1,96 +1,72 @@
-//! Interfaces for implementing microcontrollers in Tock.
+//! 在 Tock 中实现微控制器的接口。
 
 use crate::platform::mpu;
 use crate::syscall;
 use core::fmt::Write;
 
-/// Interface for individual MCUs.
+/// 单个 MCU 的接口。
 ///
-/// The trait defines chip-specific properties of Tock's operation. These
-/// include whether and which memory protection mechanism and scheduler_timer to
-/// use, how to switch between the kernel and userland applications, and how to
-/// handle hardware events.
+/// 该特征定义了 Tock 操作的芯片特定属性。
+/// 其中包括是否以及使用哪种内存保护机制和 scheduler_timer，
+/// 如何在内核和用户态应用程序之间切换，以及如何处理硬件事件。
 ///
-/// Each microcontroller should define a struct and implement this trait.
+/// 每个微控制器都应该定义一个结构并实现这个特性。
 pub trait Chip {
-    /// The particular Memory Protection Unit (MPU) for this chip.
+    /// 此芯片的特定内存保护单元 (MPU)。
     type MPU: mpu::MPU;
 
-    /// The implementation of the interface between userspace and the kernel for
-    /// this specific chip. Likely this is architecture specific, but individual
-    /// chips may have various custom requirements.
+    /// 此特定芯片的用户空间和内核之间接口的实现。
+    /// 这可能是特定于架构的，但个别芯片可能有各种定制要求。
     type UserspaceKernelBoundary: syscall::UserspaceKernelBoundary;
 
-    /// The kernel calls this function to tell the chip to check for all pending
-    /// interrupts and to correctly dispatch them to the peripheral drivers for
-    /// the chip.
-    ///
-    /// This function should loop internally until all interrupts have been
-    /// handled. It is ok, however, if an interrupt occurs after the last check
-    /// but before this function returns. The kernel will handle this edge case.
+    /// 内核调用这个函数来告诉芯片检查所有Pending的中断，并将它们正确地分派给芯片的外围驱动程序。
+    /// 这个函数应该在内部循环，直到所有的中断都被处理完。
+    /// 但是，如果在最后一次检查之后但在此函数返回之前发生中断,内核将处理这种极端情况。
     fn service_pending_interrupts(&self);
 
-    /// Ask the chip to check if there are any pending interrupts.
+    /// 要求芯片检查是否有任何Pending中断。
     fn has_pending_interrupts(&self) -> bool;
 
-    /// Returns a reference to the implementation for the MPU on this chip.
+    /// 返回对此芯片上 MPU 实现的引用。
     fn mpu(&self) -> &Self::MPU;
 
-    /// Returns a reference to the implementation for the interface between
-    /// userspace and kernelspace.
+    /// 返回对用户空间和内核空间之间接口实现的引用。
     fn userspace_kernel_boundary(&self) -> &Self::UserspaceKernelBoundary;
 
-    /// Called when there is nothing left for the chip to do and it should enter
-    /// a low power sleep state. This low power sleep state should allow
-    /// interrupts to still be active so that the next interrupt event wakes the
-    /// chip and resumes the scheduler.
+    /// 当芯片无事可做并且应该进入低功耗睡眠状态时调用。
+    /// 这种低功耗睡眠状态应该允许中断仍然处于活动状态，
+    /// 以便下一个中断事件唤醒芯片并恢复调度程序。
     fn sleep(&self);
 
-    /// Run a function in an atomic state, which means that interrupts are
-    /// disabled so that an interrupt will not fire during the passed in
-    /// function's execution.
+    /// 在原子状态下运行函数，这意味着中断被禁用，以便在传入函数执行期间不会触发中断。
     unsafe fn atomic<F, R>(&self, f: F) -> R
     where
         F: FnOnce() -> R;
 
-    /// Print out chip state (system registers) to a supplied
-    /// writer. This does not print out the execution context
-    /// (data registers), as this depends on how they are stored;
-    /// that is implemented by
-    /// `syscall::UserspaceKernelBoundary::print_context`.
-    /// This also does not print out a process memory state,
-    /// that is implemented by `process::Process::print_memory_map`.
-    /// The MPU state is printed by the MPU's implementation of
-    /// the Display trait.
-    /// Used by panic.
+    /// 将芯片状态（系统寄存器）打印到提供的写入器。 这不会打印出执行上下文（数据寄存器），
+    /// 因为这取决于它们的存储方式；
+    /// 这是由 `syscall::UserspaceKernelBoundary::print_context` 实现的。
+    /// 这也不会打印出由 `process::Process::print_memory_map` 实现的进程内存状态。
+    ///  MPU 状态由 MPU 的 Display trait 实现打印。被Panic使用。
     unsafe fn print_state(&self, writer: &mut dyn Write);
 }
 
-/// Interface for handling interrupts and deferred calls on a hardware chip.
+/// 用于处理硬件芯片上的中断和延迟调用的接口。
 ///
-/// Each board must construct an implementation of this trait to handle specific
-/// interrupts. When an interrupt (identified by number) has triggered and
-/// should be handled, the implementation of this trait will be called with the
-/// interrupt number. The implementation can then handle the interrupt, or
-/// return `false` to signify that it does not know how to handle the interrupt.
+/// 每块板都必须构建这个特性的实现来处理特定的中断。 当一个中断（由编号标识）已触发并应处理时，
+/// 将使用中断编号调用此 trait 的实现。 然后实现可以处理中断，
+/// 或者返回“false”以表示它不知道如何处理中断。
 ///
-/// This functionality is given this `InterruptService` interface so that
-/// multiple objects can be chained together to handle interrupts for a chip.
-/// This is useful for code organization and removing the need for duplication
-/// when multiple variations of a specific microcontroller exist. Then a shared,
-/// base object can handle most interrupts, and variation-specific objects can
-/// handle the variation-specific interrupts.
+/// 这个功能被赋予了这个“InterruptService”接口，因此多个对象可以链接在一起来处理芯片的中断。
+/// 这对于代码组织和在特定微控制器的多个变体存在时消除重复的需要很有用。
+/// 然后一个共享的基础对象可以处理大多数中断，而特定于变体的对象可以处理特定于变体的中断。
 ///
-/// To simplify structuring the Rust code when using `InterruptService`, the
-/// interrupt number should be passed "top-down". That is, an interrupt to be
-/// handled will first be passed to the `InterruptService` object that is most
-/// specific. If that object cannot handle the interrupt, then it should
-/// maintain a reference to the second most specific object, and return by
-/// calling to that object to handle the interrupt. This continues until the
-/// base object handles the interrupt or decides that the chip does not know how
-/// to handle the interrupt. For example, consider a `nRF52840` chip that
-/// depends on the `nRF52` crate. If both have specific interrupts they know how
-/// to handle, the flow would look like:
+/// 为了在使用 `InterruptService` 时简化 Rust 代码的结构，应该“自上而下”地传递中断号。
+/// 也就是说，要处理的中断将首先传递给最具体的“InterruptService”对象。
+/// 如果该对象不能处理中断，那么它应该保持对第二个最具体的对象的引用，
+/// 并通过调用该对象来处理中断来返回。 这一直持续到基础对象处理中断或决定芯片不知道
+/// 如何处理中断。 例如，考虑一个依赖于 `nRF52` crate 的 `nRF52840` 芯片。
+/// 如果两者都有他们知道如何处理的特定中断，则流程将如下所示：
 ///
 /// ```ignore
 ///           +---->nrf52840_peripherals
@@ -99,26 +75,24 @@ pub trait Chip {
 ///           |        v
 /// kernel-->nrf52     nrf52_peripherals
 /// ```
-/// where the kernel instructs the `nrf52` crate to handle interrupts, and if
-/// there is an interrupt ready then that interrupt is passed through the
-/// InterruptService objects until something can service it.
+/// 内核指示“nrf52”crate处理中断，如果有一个中断准备好，
+/// 那么该中断将通过 InterruptService 对象传递，直到有东西可以为它服务。
 pub trait InterruptService<T> {
-    /// Service an interrupt, if supported by this chip. If this interrupt
-    /// number is not supported, return false.
+    /// 如果此芯片支持，则服务中断。 如果不支持此中断号，则返回 false。
     unsafe fn service_interrupt(&self, interrupt: u32) -> bool;
 
-    /// Service a deferred call. If this task is not supported, return false.
+    /// Service a deferred call。 如果不支持此任务，则返回 false。
     unsafe fn service_deferred_call(&self, task: T) -> bool;
 }
 
-/// Generic operations that clock-like things are expected to support.
+/// 类似时钟的东西应该支持的通用操作。
 pub trait ClockInterface {
     fn is_enabled(&self) -> bool;
     fn enable(&self);
     fn disable(&self);
 }
 
-/// Helper struct for interfaces that expect clocks, but have no clock control.
+/// 需要时钟但没有时钟控制的接口的辅助结构。
 pub struct NoClockControl {}
 impl ClockInterface for NoClockControl {
     fn is_enabled(&self) -> bool {
@@ -128,6 +102,5 @@ impl ClockInterface for NoClockControl {
     fn disable(&self) {}
 }
 
-/// Instance of NoClockControl for things that need references to
-/// `ClockInterface` objects.
+/// NoClockControl 的实例，用于需要引用 `ClockInterface` 对象的事物。
 pub static mut NO_CLOCK_CONTROL: NoClockControl = NoClockControl {};

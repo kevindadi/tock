@@ -1,6 +1,6 @@
-//! Traits for implementing various layers and components in Tock.
+//! 在 Tock 中实现各种层和组件的特征。
 //!
-//! Implementations of these traits are used by the core kernel.
+//! 核心内核使用这些特征的实现。
 
 pub mod chip;
 pub mod mpu;
