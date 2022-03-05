@@ -44,28 +44,23 @@ pub trait KernelResources<C: Chip> {
     /// 返回对此平台希望内核使用的 ProcessFault 处理程序的实现的引用。
     fn process_fault(&self) -> &Self::ProcessFault;
 
-    /// Returns a reference to the implementation of the Scheduler this platform
-    /// wants the kernel to use.
+    /// 返回对此平台希望内核使用的调度程序实现的引用。
     fn scheduler(&self) -> &Self::Scheduler;
 
-    /// Returns a reference to the implementation of the SchedulerTimer timer
-    /// for this platform.
+    /// 返回对此平台的 SchedulerTimer 计时器实现的引用。
     fn scheduler_timer(&self) -> &Self::SchedulerTimer;
 
-    /// Returns a reference to the implementation of the WatchDog on this
-    /// platform.
+    /// 返回对此平台上 WatchDog 实现的引用。
     fn watchdog(&self) -> &Self::WatchDog;
 
-    /// Returns a reference to the implementation of the ContextSwitchCallback
-    /// for this platform.
+    /// 返回对此平台的 ContextSwitchCallback 实现的引用。
     fn context_switch_callback(&self) -> &Self::ContextSwitchCallback;
 }
 
-/// Configure the system call dispatch mapping.
+/// 配置系system call dispatch 映射。
 ///
-/// Each board should define a struct which implements this trait. This trait is
-/// the core for how syscall dispatching is handled, and the implementation is
-/// responsible for dispatching to drivers for each system call number.
+/// 每个板都应该定义一个实现这个特性的结构。
+/// 这个特征是如何处理系统调用调度的核心，实现负责为每个系统调用号调度到驱动程序。
 ///
 /// ## Example
 ///
@@ -92,8 +87,7 @@ pub trait KernelResources<C: Chip> {
 /// }
 /// ```
 pub trait SyscallDriverLookup {
-    /// Platform-specific mapping of syscall numbers to objects that implement
-    /// the Driver methods for that syscall.
+    /// 系统调用号到实现该系统调用的驱动程序方法的对象的特定于平台的映射。
     ///
     ///
     /// An implementation
@@ -102,17 +96,14 @@ pub trait SyscallDriverLookup {
         F: FnOnce(Option<&dyn SyscallDriver>) -> R;
 }
 
-/// Trait for implementing system call filters that the kernel uses to decide
-/// whether to handle a specific system call or not.
+/// 用于实现内核用来决定是否处理特定系统调用的系统调用过滤器的Trait
 pub trait SyscallFilter {
-    /// Check the platform-provided system call filter for all non-yield system
-    /// calls. If the system call is allowed for the provided process then
-    /// return `Ok(())`. Otherwise, return `Err()` with an `ErrorCode` that will
-    /// be returned to the calling application. The default implementation
-    /// allows all system calls.
+    /// 检查平台提供的系统调用过滤器以查找所有non-yield syscall。
+    /// 如果提供的进程允许系统调用，则返回“Ok(())”。
+    /// 否则，返回带有“ErrorCode”的“Err()”，该错误代码将返回给调用应用程序。
+    /// 默认实现允许所有系统调用。
     ///
-    /// This API should be considered unstable, and is likely to change in the
-    /// future.
+    /// 这个 API 应该被认为是不稳定的，并且很可能在未来发生变化。
     fn filter_syscall(
         &self,
         _process: &dyn process::Process,
@@ -122,20 +113,16 @@ pub trait SyscallFilter {
     }
 }
 
-/// Implement default allow all SyscallFilter trait for unit.
+/// 实现默认允许单元的所有 SyscallFilter Trait。
 impl SyscallFilter for () {}
 
-/// An allow list system call filter based on the TBF header, with a default
-/// allow all fallback.
-///
-/// This will check if the process has TbfHeaderPermissions specified.
-/// If the process has TbfHeaderPermissions they will be used to determine
-/// access permissions. For details on this see the TockBinaryFormat
-/// documentation.
-/// If no permissions are specified the default is to allow the syscall.
+/// 基于 TBF 标头的允许列表系统调用过滤器，默认允许所有fallback。
+/// 这将检查进程是否指定了 TbfHeaderPermissions。如果进程具有 TbfHeaderPermissions，
+/// 它们将用于确定访问权限。 有关这方面的详细信息，请参阅 TockBinaryFormat 文档。
+/// 如果没有指定权限，默认是允许系统调用。
 pub struct TbfHeaderFilterDefaultAllow {}
 
-/// Implement default SyscallFilter trait for filtering based on the TBF header.
+/// 为基于 TBF 标头的过滤实现默认的 SyscallFilter 特征。
 impl SyscallFilter for TbfHeaderFilterDefaultAllow {
     fn filter_syscall(
         &self,
@@ -216,58 +203,46 @@ impl SyscallFilter for TbfHeaderFilterDefaultAllow {
     }
 }
 
-/// Trait for implementing process fault handlers to run when a process faults.
+/// 用于实现Process故障处理程序以在Process故障时运行的Trait。
 pub trait ProcessFault {
     /// This function is called when an app faults.
     ///
-    /// This is an optional function that can be implemented by `Platform`s that
-    /// allows the chip to handle the app fault and not terminate or restart
-    /// the app.
+    /// 这是一个可选功能，可以由“平台”实现，允许芯片处理应用程序故障而不终止或重新启动应用程序。
     ///
-    /// If `Ok(())` is returned by this function then the kernel will not
-    /// terminate or restart the app, but instead allow it to continue
-    /// running. NOTE in this case the chip must have fixed the underlying
-    /// reason for fault otherwise it will re-occur.
+    /// 如果此函数返回 `Ok(())`，则内核不会终止或重新启动应用程序，而是允许它继续运行。
+    /// 注意在这种情况下，芯片必须已经修复了故障的根本原因，否则它将再次发生。
     ///
-    /// This can not be used for apps to circumvent Tock's protections. If
-    /// for example this function just ignored the error and allowed the app
-    /// to continue the fault would continue to occur.
+    /// 这不能用于应用程序绕过 Tock 的保护。
+    /// 例如，如果此函数只是忽略错误并允许应用程序继续，则故障将继续发生。
     ///
-    /// If `Err(())` is returned then the kernel will set the app as faulted
-    /// and follow the `FaultResponse` protocol.
+    /// 如果返回 `Err(())`，那么内核会将应用程序设置为故障并遵循 `FaultResponse` 协议。
     ///
-    /// It is unlikey a `Platform` will need to implement this. This should be used
-    /// for only a handul of use cases. Possible use cases include:
-    ///    - Allowing the kernel to emulate unimplemented instructions
-    ///      This could be used to allow apps to run on hardware that doesn't
-    ///      implement some instructions, for example atomics.
-    ///    - Allow the kernel to handle hardware faults, triggered by the app.
-    ///      This can allow an app to continue running if it triggers certain
-    ///      types of faults. For example if an app triggers a memory parity
-    ///      error the kernel can handle the error and allow the app to
-    ///      continue (or not).
-    ///    - Allow an app to execute from external QSPI.
-    ///      This could be used to allow an app to execute from external QSPI
-    ///      where access faults can be handled by the `Platform` to ensure the
-    ///      QPSI is mapped correctly.
+    /// “平台”不太可能需要实现这一点。 这应该仅用于少数用例。 可能的用例包括：
+    ///    - 允许内核模拟未实现的指令
+    ///      这可用于允许应用程序在未实现某些指令（例如原子指令）的硬件上运行。
+    ///    - 允许内核处理由应用程序触发的硬件故障。
+    ///      这可以让应用程序在触发某些类型的故障时继续运行。
+    ///      例如，如果应用程序触发内存奇偶校验错误，内核可以处理该错误并允许应用程序继续（或不继续）。
+    ///    - 允许应用从外部 QSPI 执行。
+    ///      这可用于允许应用程序在“平台”可以处理访问错误的情况下执行，以确保正确映射 QPSI。
     #[allow(unused_variables)]
     fn process_fault_hook(&self, process: &dyn process::Process) -> Result<(), ()> {
         Err(())
     }
 }
 
-/// Implement default ProcessFault trait for unit.
+/// 为Unit实现默认的 ProcessFault Trait
 impl ProcessFault for () {}
 
-/// Trait for implementing handlers on userspace context switches.
+/// 在用户空间上下文切换上实现处理程序的特征
 pub trait ContextSwitchCallback {
-    /// This function is called before the kernel switches to a process.
+    /// 在内核切换到进程之前调用此函数。
     ///
-    /// `process` is the app that is about to run
+    /// `process` 是即将运行的应用程序
     fn context_switch_hook(&self, process: &dyn process::Process);
 }
 
-/// Implement default ContextSwitchCallback trait for unit.
+/// 为Unit实现默认的 ContextSwitchCallback Trait
 impl ContextSwitchCallback for () {
     fn context_switch_hook(&self, _process: &dyn process::Process) {}
 }

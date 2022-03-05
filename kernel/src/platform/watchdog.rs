@@ -1,9 +1,7 @@
 //! Interface for configuring a watchdog
 
-/// A trait for implementing a watchdog in the kernel.
-/// This trait is called from the `kernel_loop()` code to setup
-/// and maintain the watchdog timer.
-/// It is up to the specific `Chip` how it will handle watchdog interrupts.
+/// 在内核中实现看门狗的特征。 从 `kernel_loop()` 代码调用此 trait 来设置和
+/// 维护看门狗定时器。 如何处理看门狗中断取决于特定的“芯片”。
 pub trait WatchDog {
     /// This function must enable the watchdog timer and configure it to
     /// trigger regulary. The period of the timer is left to the implementation
