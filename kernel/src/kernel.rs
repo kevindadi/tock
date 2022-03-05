@@ -1,9 +1,6 @@
-//! Tock's main kernel loop, scheduler loop, and Scheduler trait.
-//!
-//! This module also includes utility functions that are commonly used
-//! by scheduler policy implementations.  Scheduling policy (round
-//! robin, priority, etc.) is defined in the `sched` subcrate and
-//! selected by a board.
+//! Tock 的主内核循环、调度程序循环和调度程序特征。
+//! 该模块还包括调度程序策略实现常用的实用程序功能。
+//! 调度策略（循环、优先级等）在“sched” carte中定义并由板子选择。
 
 use core::cell::Cell;
 use core::ptr::NonNull;
@@ -32,70 +29,60 @@ use crate::syscall_driver::CommandReturn;
 use crate::upcall::{Upcall, UpcallId};
 use crate::utilities::cells::NumericCellExt;
 
-/// Threshold in microseconds to consider a process's timeslice to be exhausted.
-/// That is, Tock will skip re-scheduling a process if its remaining timeslice
-/// is less than this threshold.
+/// 以微秒为单位的阈值，以考虑进程的时间片已耗尽。
+/// 也就是说，如果剩余时间片小于此阈值，Tock 将跳过重新调度进程。
 pub(crate) const MIN_QUANTA_THRESHOLD_US: u32 = 500;
 
-/// Main object for the kernel. Each board will need to create one.
+/// 内核的主要对象。 每个开发板都需要创建一个。
 pub struct Kernel {
-    /// How many "to-do" items exist at any given time. These include
-    /// outstanding upcalls and processes in the Running state.
+    /// 在任何给定时间存在多少“待办事项”。 这些包括未完成的调用和处于运行状态的进程。
     work: Cell<usize>,
 
-    /// This holds a pointer to the static array of Process pointers.
+    /// 这包含一个指向静态进程指针数组的指针。
     processes: &'static [Option<&'static dyn process::Process>],
 
-    /// A counter which keeps track of how many process identifiers have been
-    /// created. This is used to create new unique identifiers for processes.
+    /// 跟踪创建了多少进程标识符的计数器。 这用于为进程创建新的唯一标识符。
     process_identifier_max: Cell<usize>,
 
-    /// How many grant regions have been setup. This is incremented on every
-    /// call to `create_grant()`. We need to explicitly track this so that when
-    /// processes are created they can be allocated pointers for each grant.
+    /// 已设置多少个Grant区域。 每次调用 `create_grant()` 时都会增加。
+    /// 我们需要明确地跟踪这一点，以便在创建进程时可以为每个Grant分配指针。
     grant_counter: Cell<usize>,
 
-    /// Flag to mark that grants have been finalized. This means that the kernel
-    /// cannot support creating new grants because processes have already been
-    /// created and the data structures for grants have already been
-    /// established.
+    /// 用于标记Grant已完成的标志。
+    /// 这意味着内核不能支持创建新的Grant，因为已经创建了进程并且已经建立了Grant的数据结构
     grants_finalized: Cell<bool>,
 }
 
-/// Enum used to inform scheduler why a process stopped executing (aka why
-/// `do_process()` returned).
+/// 枚举用于通知调度程序为什么进程停止执行（也就是为什么 `do_process()` 返回）
 #[derive(PartialEq, Eq)]
 pub enum StoppedExecutingReason {
-    /// The process returned because it is no longer ready to run.
+    /// 进程返回，因为它不再准备运行
     NoWorkLeft,
 
-    /// The process faulted, and the board restart policy was configured such
-    /// that it was not restarted and there was not a kernel panic.
+    /// 进程出现故障，并且配置了开发板重启策略，使其未重启且没有内核崩溃
     StoppedFaulted,
 
-    /// The kernel stopped the process.
+    /// 内核停止了该进程
     Stopped,
 
-    /// The process was preempted because its timeslice expired.
+    /// 该进程被抢占，因为它的时间片已过期
     TimesliceExpired,
 
-    /// The process returned because it was preempted by the kernel. This can
-    /// mean that kernel work became ready (most likely because an interrupt
-    /// fired and the kernel thread needs to execute the bottom half of the
-    /// interrupt), or because the scheduler no longer wants to execute that
-    /// process.
+    /// 进程返回是因为它被内核抢占了
+    /// 这可能意味着内核工作已准备就绪（很可能是因为触发了中断并且内核线程需要执行中断的下半部分），
+    /// 或者因为调度程序不再想要执行该进程。
     KernelPreemption,
 }
 
-/// Represents the different outcomes when trying to allocate a grant region
+/// 表示try分配Grant区域时的不同结果
 enum AllocResult {
     NoAllocation,
     NewAllocation,
     SameAllocation,
 }
 
-/// Tries to allocate the grant region for specified driver and process.
-/// Returns if a new grant was allocated or not
+/// 尝试为指定的驱动程序和进程分配Grant区域
+/// 返回是否分配了新的授权
 fn try_allocate_grant<KR: KernelResources<C>, C: Chip>(
     resources: &KR,
     driver_number: usize,
@@ -127,18 +114,16 @@ impl Kernel {
         }
     }
 
-    /// Something was scheduled for a process, so there is more work to do.
+    /// 为某个流程安排了一些事情，因此还有更多工作要做
     ///
-    /// This is only exposed in the core kernel crate.
+    /// 这仅在核心内核 crate 中公开
     pub(crate) fn increment_work(&self) {
         self.work.increment();
     }
 
-    /// Something was scheduled for a process, so there is more work to do.
-    ///
-    /// This is exposed publicly, but restricted with a capability. The intent
-    /// is that external implementations of `Process` need to be able to
-    /// indicate there is more process work to do.
+    /// 为某个流程安排了一些事情，因此还有更多工作要做
+    /// 这是公开的，但有能力限制。
+    /// 目的是“Process”的外部实现需要能够表明还有更多流程工作要做。
     pub fn increment_work_external(
         &self,
         _capability: &dyn capabilities::ExternalProcessCapability,
@@ -146,10 +131,9 @@ impl Kernel {
         self.increment_work();
     }
 
-    /// Something finished for a process, so we decrement how much work there is
-    /// to do.
+    /// 对于一个进程，一些事情已经完成，所以我们减少了有多少工作要做
     ///
-    /// This is only exposed in the core kernel crate.
+    /// 这仅在核心内核 crate 中公开。
     pub(crate) fn decrement_work(&self) {
         self.work.decrement();
     }
@@ -157,9 +141,8 @@ impl Kernel {
     /// Something finished for a process, so we decrement how much work there is
     /// to do.
     ///
-    /// This is exposed publicly, but restricted with a capability. The intent
-    /// is that external implementations of `Process` need to be able to
-    /// indicate that some process work has finished.
+    /// This is exposed publicly, but restricted with a capability.
+    /// 目的是“Process”的外部实现需要能够表明有多少工作已经完成。
     pub fn decrement_work_external(
         &self,
         _capability: &dyn capabilities::ExternalProcessCapability,
@@ -167,23 +150,20 @@ impl Kernel {
         self.decrement_work();
     }
 
-    /// Helper function for determining if we should service processes or go to
-    /// sleep.
+    /// 帮助函数，用于确定我们是否应该为进程提供服务或进入睡眠状态。
     pub(crate) fn processes_blocked(&self) -> bool {
         self.work.get() == 0
     }
 
-    /// Helper function that moves all non-generic portions of process_map_or
-    /// into a non-generic function to reduce code bloat from monomorphization.
+    /// 帮助函数将 process_map_or 的所有非泛型部分移动到非泛型函数中，
+    /// 以减少单态化导致的代码膨胀。
     pub(crate) fn get_process(&self, processid: ProcessId) -> Option<&dyn process::Process> {
-        // We use the index in the `appid` so we can do a direct lookup.
-        // However, we are not guaranteed that the app still exists at that
-        // index in the processes array. To avoid additional overhead, we do the
-        // lookup and check here, rather than calling `.index()`.
+        // 我们在 `appid` 中使用索引，所以我们可以直接查找。
+        // 但是，我们不能保证应用程序仍然存在于进程数组中的该索引处。
+        // 为了避免额外的开销，我们在这里进行查找和检查，而不是调用`.index()`。
         match self.processes.get(processid.index) {
             Some(Some(process)) => {
-                // Check that the process stored here matches the identifier
-                // in the `appid`.
+                // 检查此处存储的进程是否与 `appid` 中的标识符匹配。
                 if process.processid() == processid {
                     Some(*process)
                 } else {
@@ -194,16 +174,14 @@ impl Kernel {
         }
     }
 
-    /// Run a closure on a specific process if it exists. If the process with a
-    /// matching `ProcessId` does not exist at the index specified within the
-    /// `ProcessId`, then `default` will be returned.
+    /// 如果存在，则对特定进程运行闭包。
+    /// 如果在 `ProcessId` 中指定的索引处不存在具有匹配 `ProcessId` 的进程，
+    /// 则将返回 `default`。
     ///
-    /// A match will not be found if the process was removed (and there is a
-    /// `None` in the process array), if the process changed its identifier
-    /// (likely after being restarted), or if the process was moved to a
-    /// different index in the processes array. Note that a match _will_ be
-    /// found if the process still exists in the correct location in the array
-    /// but is in any "stopped" state.
+    /// 如果进程被remove（并且进程数组中有一个“None”），
+    /// 如果进程更改了它的标识符（可能在重新启动之后），
+    /// 或者如果进程被移动到不同的索引，则不会找到匹配项进程数组。
+    /// 请注意，如果进程仍然存在于数组中的正确位置但处于任何“停止”状态，则将找到匹配项。
     pub(crate) fn process_map_or<F, R>(&self, default: R, appid: ProcessId, closure: F) -> R
     where
         F: FnOnce(&dyn process::Process) -> R,
@@ -225,9 +203,8 @@ impl Kernel {
     /// found if the process still exists in the correct location in the array
     /// but is in any "stopped" state.
     ///
-    /// This is functionally the same as `process_map_or()`, but this method is
-    /// available outside the kernel crate and requires a
-    /// `ProcessManagementCapability` to use.
+    /// 这在功能上与 `process_map_or()` 相同，但此方法在kernel crate 之外可用，
+    /// 并且需要 `ProcessManagementCapability` 才能使用。
     pub fn process_map_or_external<F, R>(
         &self,
         default: R,
@@ -244,8 +221,7 @@ impl Kernel {
         }
     }
 
-    /// Run a closure on every valid process. This will iterate the array of
-    /// processes and call the closure on every process that exists.
+    /// 在每个有效进程上运行一个闭包。 这将迭代进程数组并在每个存在的进程上调用闭包。
     pub(crate) fn process_each<F>(&self, mut closure: F)
     where
         F: FnMut(&dyn process::Process),
@@ -260,7 +236,7 @@ impl Kernel {
         }
     }
 
-    /// Returns an iterator over all processes loaded by the kernel
+    /// 返回内核加载的所有进程的迭代器
     pub(crate) fn get_process_iter(
         &self,
     ) -> core::iter::FilterMap<
@@ -275,12 +251,10 @@ impl Kernel {
         self.processes.iter().filter_map(keep_some)
     }
 
-    /// Run a closure on every valid process. This will iterate the array of
-    /// processes and call the closure on every process that exists.
+    /// 在每个有效进程上运行一个闭包。 这将迭代进程数组并在每个存在的进程上调用闭包。
     ///
-    /// This is functionally the same as `process_each()`, but this method is
-    /// available outside the kernel crate and requires a
-    /// `ProcessManagementCapability` to use.
+    /// 这在功能上与 `process_each()` 相同，
+    /// 但此方法在内核 crate 之外可用，并且需要使用 `ProcessManagementCapability`。
     pub fn process_each_capability<F>(
         &'static self,
         _capability: &dyn capabilities::ProcessManagementCapability,
@@ -298,9 +272,8 @@ impl Kernel {
         }
     }
 
-    /// Run a closure on every process, but only continue if the closure returns `None`. That is,
-    /// if the closure returns any non-`None` value, iteration stops and the value is returned from
-    /// this function to the called.
+    /// 在每个进程上运行一个闭包，但只有在闭包返回“None”时才继续。
+    /// 也就是说，如果闭包返回任何非“None”值，则迭代停止并将此函数的值返回给被调用者。
     pub(crate) fn process_until<T, F>(&self, closure: F) -> Option<T>
     where
         F: Fn(&dyn process::Process) -> Option<T>,
@@ -319,29 +292,22 @@ impl Kernel {
         None
     }
 
-    /// Checks if the provided `ProcessId` is still valid given the processes stored
-    /// in the processes array. Returns `true` if the ProcessId still refers to
-    /// a valid process, and `false` if not.
+    /// 给定存储在进程数组中的进程，检查提供的“ProcessId”是否仍然有效。
+    /// 如果 ProcessId 仍然引用有效进程，则返回 `true`，否则返回 `false`。
     ///
-    /// This is needed for `ProcessId` itself to implement the `.index()` command to
-    /// verify that the referenced app is still at the correct index.
+    /// `ProcessId` 本身需要执行 `.index()` 命令来验证引用的应用程序是否仍在正确的索引处。
     pub(crate) fn processid_is_valid(&self, appid: &ProcessId) -> bool {
         self.processes.get(appid.index).map_or(false, |p| {
             p.map_or(false, |process| process.processid().id() == appid.id())
         })
     }
 
-    /// Create a new grant. This is used in board initialization to setup grants
-    /// that capsules use to interact with processes.
+    /// 创建一个新的Grant。 这用于板级初始化以设置Capsules用于与Process交互的Grant。
     ///
-    /// Grants **must** only be created _before_ processes are initialized.
-    /// Processes use the number of grants that have been allocated to correctly
-    /// initialize the process's memory with a pointer for each grant. If a
-    /// grant is created after processes are initialized this will panic.
+    /// Grant**必须**仅在_before_进程被初始化时创建。进程使用已分配的Grant数量来正确初始化进程的内存，
+    /// 每个Grant都有一个指针。 如果在进程初始化后创建授权，这将出现Panic。
     ///
-    /// Calling this function is restricted to only certain users, and to
-    /// enforce this calling this function requires the
-    /// `MemoryAllocationCapability` capability.
+    /// 调用此函数仅限于某些用户，并且要强制执行此调用此函数需要 `MemoryAllocationCapability` 能力。
     pub fn create_grant<
         T: Default,
         Upcalls: UpcallSize,
@@ -356,35 +322,25 @@ impl Kernel {
             panic!("Grants finalized. Cannot create a new grant.");
         }
 
-        // Create and return a new grant.
+        // 创建并返回一个新的Grant
         let grant_index = self.grant_counter.get();
         self.grant_counter.increment();
         Grant::new(self, driver_num, grant_index)
     }
 
-    /// Returns the number of grants that have been setup in the system and
-    /// marks the grants as "finalized". This means that no more grants can
-    /// be created because data structures have been setup based on the number
-    /// of grants when this function is called.
-    ///
-    /// In practice, this is called when processes are created, and the process
-    /// memory is setup based on the number of current grants.
+    /// 返回系统中已设置的Grant数量，并将Grant标记为“已完成”。
+    /// 这意味着不能再创建Grant，因为在调用此函数时已根据Grant数量设置了数据结构。
+    /// 实际上，这是在创建进程时调用的，并且进程内存是根据当前Grant的数量设置的。
     pub(crate) fn get_grant_count_and_finalize(&self) -> usize {
         self.grants_finalized.set(true);
         self.grant_counter.get()
     }
 
-    /// Returns the number of grants that have been setup in the system and
-    /// marks the grants as "finalized". This means that no more grants can
-    /// be created because data structures have been setup based on the number
-    /// of grants when this function is called.
-    ///
-    /// In practice, this is called when processes are created, and the process
-    /// memory is setup based on the number of current grants.
-    ///
-    /// This is exposed publicly, but restricted with a capability. The intent
-    /// is that external implementations of `Process` need to be able to
-    /// retrieve the final number of grants.
+    /// 返回系统中已设置的Grant数量，并将Grant标记为“已完成”。
+    /// 这意味着不能再创建Grant，因为在调用此函数时已根据Grant数量设置了数据结构。
+
+    /// 实际上，这是在创建进程时调用的，并且进程内存是根据当前Grant的数量设置的。
+    /// Pub，但有能力限制。 目的是“Process”的外部实现需要能够检索最终的Grant数量。
     pub fn get_grant_count_and_finalize_external(
         &self,
         _capability: &dyn capabilities::ExternalProcessCapability,
@@ -392,24 +348,20 @@ impl Kernel {
         self.get_grant_count_and_finalize()
     }
 
-    /// Create a new unique identifier for a process and return the identifier.
+    /// 为进程创建一个新的唯一标识符并返回该标识符。
     ///
-    /// Typically we just choose a larger number than we have used for any process
-    /// before which ensures that the identifier is unique.
+    /// 通常我们只选择一个比我们之前用于任何进程的更大的数字，以确保标识符是唯一的。
     pub(crate) fn create_process_identifier(&self) -> usize {
         self.process_identifier_max.get_and_increment()
     }
 
-    /// Cause all apps to fault.
+    /// 导致所有应用程序出现故障。
     ///
-    /// This will call `set_fault_state()` on each app, causing the app to enter
-    /// the state as if it had crashed (for example with an MPU violation). If
-    /// the process is configured to be restarted it will be.
+    /// 这将在每个应用程序上调用 `set_fault_state()`，导致应用程序进入状态，就好像它已经崩溃（例如 MPU 违规）。
+    /// 如果该进程被配置为重新启动，它将被重新启动。
     ///
-    /// Only callers with the `ProcessManagementCapability` can call this
-    /// function. This restricts general capsules from being able to call this
-    /// function, since capsules should not be able to arbitrarily restart all
-    /// apps.
+    /// 只有具有 `ProcessManagementCapability` 的调用者才能调用此函数。
+    /// 这限制了一般Capsules能够调用此函数，因为Capsules不应该能够任意重启所有应用程序。
     pub fn hardfault_all_apps<C: capabilities::ProcessManagementCapability>(&self, _c: &C) {
         for p in self.processes.iter() {
             p.map(|process| {
@@ -418,23 +370,19 @@ impl Kernel {
         }
     }
 
-    /// Perform one iteration of the core Tock kernel loop.
+    /// 执行核心 Tock 内核循环的一次迭代。
     ///
-    /// This function is responsible for three main operations:
+    /// 该函数负责三个主要操作：
     ///
-    /// 1. Check if the kernel itself has any work to be done and if the
-    ///    scheduler wants to complete that work now. If so, it allows the
-    ///    kernel to run.
-    /// 2. Check if any processes have any work to be done, and if so if the
-    ///    scheduler wants to allow any processes to run now, and if so which
-    ///    one.
-    /// 3. After ensuring the scheduler does not want to complete any kernel or
-    ///    process work (or there is no work to be done), are there are no
-    ///    outstanding interrupts to handle, put the chip to sleep.
+    /// 1. 检查内核本身是否有任何工作要完成，以及调度程序是否想立即完成该工作。
+    /// 如果是这样，它允许内核运行它
+    /// 2. 检查是否有任何进程有任何工作要完成，
+    /// 如果是，调度程序是否要允许任何进程现在运行，如果是，是哪一个。
+    /// 3. 在确保调度程序不想完成任何内核或进程工作（或没有工作要做）之后，
+    /// 是否没有未处理的中断需要处理，让芯片进入睡眠状态。
     ///
-    /// This function has one configuration option: `no_sleep`. If that argument
-    /// is set to true, the kernel will never attempt to put the chip to sleep,
-    /// and this function can be called again immediately.
+    /// 这个函数有一个配置选项：`no_sleep`。
+    /// 如果该参数设置为 true，内核将永远不会尝试使芯片进入睡眠状态，并且可以立即再次调用该函数。
     pub fn kernel_loop_operation<KR: KernelResources<C>, C: Chip, const NUM_PROCS: usize>(
         &self,
         resources: &KR,
@@ -447,18 +395,16 @@ impl Kernel {
 
         resources.watchdog().tickle();
         unsafe {
-            // Ask the scheduler if we should do tasks inside of the kernel,
-            // such as handle interrupts. A scheduler may want to prioritize
-            // processes instead, or there may be no kernel work to do.
+            // 询问调度程序我们是否应该在内核内部执行任务，例如处理中断。
+            // 调度程序可能想要优先处理进程，或者可能没有内核工作要做。
             match scheduler.do_kernel_work_now(chip) {
                 true => {
-                    // Execute kernel work. This includes handling
-                    // interrupts and is how code in the chips/ and capsules
-                    // crates is able to execute.
+                    // 执行内核工作。
+                    // 这包括处理中断，并且是Chips/Capsules crates中的代码能够执行的方式。
                     scheduler.execute_kernel_work(chip);
                 }
                 false => {
-                    // No kernel work ready, so ask scheduler for a process.
+                    // 没有准备好内核工作，所以向调度程序询问一个进程。
                     match scheduler.next(self) {
                         SchedulingDecision::RunProcess((appid, timeslice_us)) => {
                             self.process_map_or((), appid, |process| {
@@ -468,21 +414,12 @@ impl Kernel {
                             });
                         }
                         SchedulingDecision::TrySleep => {
-                            // For testing, it may be helpful to
-                            // disable sleeping the chip in case
-                            // the running test does not generate
-                            // any interrupts.
+                            // 对于测试，禁用休眠芯片可能会有所帮助，以防运行测试不产生任何中断。
                             if !no_sleep {
                                 chip.atomic(|| {
-                                    // Cannot sleep if interrupts are pending,
-                                    // as on most platforms unhandled interrupts
-                                    // will wake the device. Also, if the only
-                                    // pending interrupt occurred after the
-                                    // scheduler decided to put the chip to
-                                    // sleep, but before this atomic section
-                                    // starts, the interrupt will not be
-                                    // serviced and the chip will never wake
-                                    // from sleep.
+                                    // 如果中断Pending，则无法休眠，因为在大多数平台上，未处理的中断会唤醒设备。
+                                    // 此外，如果唯一的Pending中断发生在调度程序决定让芯片进入睡眠状态之后，
+                                    // 但在这个Atomic部分开始之前，中断将不会被服务并且芯片永远不会从睡眠中唤醒。
                                     if !chip.has_pending_interrupts()
                                         && !DynamicDeferredCall::global_instance_calls_pending()
                                             .unwrap_or(false)
@@ -500,10 +437,9 @@ impl Kernel {
         }
     }
 
-    /// Main loop of the OS.
+    /// 操作系统的主循环。
     ///
-    /// Most of the behavior of this loop is controlled by the `Scheduler`
-    /// implementation in use.
+    /// 此循环的大部分行为由正在使用的“调度程序”实现控制。
     pub fn kernel_loop<KR: KernelResources<C>, C: Chip, const NUM_PROCS: usize>(
         &self,
         resources: &KR,
@@ -517,37 +453,28 @@ impl Kernel {
         }
     }
 
-    /// Transfer control from the kernel to a userspace process.
+    /// 将控制权从内核转移到用户空间进程。
     ///
-    /// This function is called by the main kernel loop to run userspace code.
-    /// Notably, system calls from processes are handled in the kernel, *by the
-    /// kernel thread* in this function, and the syscall return value is set for
-    /// the process immediately. Normally, a process is allowed to continue
-    /// running after calling a syscall. However, the scheduler is given an out,
-    /// as `do_process()` will check with the scheduler before re-executing the
-    /// process to allow it to return from the syscall. If a process yields with
-    /// no upcalls pending, exits, exceeds its timeslice, or is interrupted,
-    /// then `do_process()` will return.
+    /// 此函数由主内核循环调用以运行用户空间代码。
+    /// 值得注意的是，来自进程的系统调用在内核中处理，*由内核线程*在此函数中处理，
+    /// 并且立即为进程设置系统调用返回值。 通常，在调用系统调用后允许进程继续运行。
+    /// 但是，调度程序会得到一个输出，
+    /// 因为 `do_process()` 将在重新执行进程之前检查调度程序以允许它从系统调用返回。
+    /// 如果一个进程在没有挂起的上行调用的情况下产生、退出、超过其时间片或被中断，
+    /// 那么 `do_process()` 将返回。
     ///
-    /// Depending on the particular scheduler in use, this function may act in a
-    /// few different ways. `scheduler.continue_process()` allows the scheduler
-    /// to tell the Kernel whether to continue executing the process, or to
-    /// return control to the scheduler as soon as a kernel task becomes ready
-    /// (either a bottom half interrupt handler or dynamic deferred call), or to
-    /// continue executing the userspace process until it reaches one of the
-    /// aforementioned stopping conditions. Some schedulers may not require a
-    /// scheduler timer; passing `None` for the timeslice will use a null
-    /// scheduler timer even if the chip provides a real scheduler timer.
-    /// Schedulers can pass a timeslice (in us) of their choice, though if the
-    /// passed timeslice is smaller than `MIN_QUANTA_THRESHOLD_US` the process
-    /// will not execute, and this function will return immediately.
+    /// 根据使用的特定调度程序，此功能可能以几种不同的方式起作用。
+    /// `scheduler.continue_process()` 允许调度程序告诉内核是继续执行进程，
+    /// 还是在内核任务准备好（下半部中断处理程序或动态延迟调用）后立即将控制权返回给调度程序，
+    /// 或者继续执行用户空间进程，直到达到上述停止条件之一。
+    /// 一些调度器可能不需要调度器定时器； 为时间片传递“None”将使用Null调度器计时器，
+    /// 即使芯片提供了real的调度器计时器。
+    /// 调度程序可以传递他们选择的时间片（in tock），但如果传递的时间片小于“MIN_QUANTA_THRESHOLD_US”，
+    /// 则该进程将不会执行，并且该函数将立即返回。
     ///
-    /// This function returns a tuple indicating the reason the reason this
-    /// function has returned to the scheduler, and the amount of time the
-    /// process spent executing (or `None` if the process was run
-    /// cooperatively). Notably, time spent in this function by the kernel,
-    /// executing system calls or merely setting up the switch to/from
-    /// userspace, is charged to the process.
+    /// 此函数返回一个元组，指示此函数返回调度程序的原因，
+    /// 以及进程执行所花费的时间量（如果进程协作运行，则返回“None”）。
+    /// 值得注意的是，内核在这个函数中花费的时间、执行系统调用或仅仅设置到/从用户空间的切换，都计入进程。
     fn do_process<KR: KernelResources<C>, C: Chip, const NUM_PROCS: usize>(
         &self,
         resources: &KR,
@@ -556,45 +483,38 @@ impl Kernel {
         ipc: Option<&crate::ipc::IPC<NUM_PROCS>>,
         timeslice_us: Option<u32>,
     ) -> (StoppedExecutingReason, Option<u32>) {
-        // We must use a dummy scheduler timer if the process should be executed
-        // without any timeslice restrictions. Note, a chip may not provide a
-        // real scheduler timer implementation even if a timeslice is requested.
+        // 如果进程应该在没有任何时间片限制的情况下执行，我们必须使用虚拟调度程序计时器。
+        // 请注意，即使请求时间片，芯片也可能无法提供real的调度器定时器实现。
         let scheduler_timer: &dyn SchedulerTimer = if timeslice_us.is_none() {
-            &() // dummy timer, no preemption
+            &() // 虚拟定时器，无抢占
         } else {
             resources.scheduler_timer()
         };
 
-        // Clear the scheduler timer and then start the counter. This starts the
-        // process's timeslice. Since the kernel is still executing at this
-        // point, the scheduler timer need not have an interrupt enabled after
-        // `start()`.
+        // 清除调度程序计时器，然后启动计数器。 这将启动进程的时间片。
+        // 由于此时内核仍在执行，因此调度程序计时器不需要在“start()”之后启用中断。
         scheduler_timer.reset();
         timeslice_us.map(|timeslice| scheduler_timer.start(timeslice));
 
-        // Need to track why the process is no longer executing so that we can
-        // inform the scheduler.
+        // 需要跟踪进程不再执行的原因，以便我们可以通知调度程序。
         let mut return_reason = StoppedExecutingReason::NoWorkLeft;
 
-        // Since the timeslice counts both the process's execution time and the
-        // time spent in the kernel on behalf of the process (setting it up and
-        // handling its syscalls), we intend to keep running the process until
-        // it has no more work to do. We break out of this loop if the scheduler
-        // no longer wants to execute this process or if it exceeds its
-        // timeslice.
+        // 由于时间片计算了进程的执行时间和进程在内核中花费的时间（设置它并处理它
+        // 的系统调用），我们打算继续运行该进程直到它没有更多的工作要做。
+        // 如果调度程序不再想要执行这个进程或者如果它超过了它的时间片，我们就会跳出这个循环。
         loop {
             let stop_running = match scheduler_timer.get_remaining_us() {
                 Some(us) => us <= MIN_QUANTA_THRESHOLD_US,
                 None => true,
             };
             if stop_running {
-                // Process ran out of time while the kernel was executing.
+                // 内核执行时进程超时。
                 process.debug_timeslice_expired();
                 return_reason = StoppedExecutingReason::TimesliceExpired;
                 break;
             }
 
-            // Check if the scheduler wishes to continue running this process.
+            // 检查调度程序是否希望继续运行此进程。
             let continue_process = unsafe {
                 resources
                     .scheduler()
@@ -605,9 +525,8 @@ impl Kernel {
                 break;
             }
 
-            // Check if this process is actually ready to run. If not, we don't
-            // try to run it. This case can happen if a process faults and is
-            // stopped, for example.
+            // 检查此过程是否实际上已准备好运行。 如果没有，我们不会尝试运行它。
+            // 例如，如果进程出现故障并停止，则可能会发生这种情况。
             if !process.ready() {
                 return_reason = StoppedExecutingReason::NoWorkLeft;
                 break;
@@ -615,11 +534,8 @@ impl Kernel {
 
             match process.get_state() {
                 process::State::Running => {
-                    // Running means that this process expects to be running, so
-                    // go ahead and set things up and switch to executing the
-                    // process. Arming the scheduler timer instructs it to
-                    // generate an interrupt when the timeslice has expired. The
-                    // underlying timer is not affected.
+                    // Running意味着该进程预计会运行，因此请继续进行设置并切换到执行该进程。
+                    // 启用调度程序计时器会指示它在时间片到期时生成中断。 底层计时器不受影响。
                     resources
                         .context_switch_callback()
                         .context_switch_hook(process);
@@ -630,18 +546,16 @@ impl Kernel {
                     scheduler_timer.disarm();
                     chip.mpu().disable_app_mpu();
 
-                    // Now the process has returned back to the kernel. Check
-                    // why and handle the process as appropriate.
+                    // 现在该进程已返回内核。 检查原因并酌情处理该过程。
                     match context_switch_reason {
                         Some(ContextSwitchReason::Fault) => {
-                            // The app faulted, check if the chip wants to
-                            // handle the fault.
+                            // 应用程序出现故障，检查芯片是否要处理故障。
                             if resources
                                 .process_fault()
                                 .process_fault_hook(process)
                                 .is_err()
                             {
-                                // Let process deal with it as appropriate.
+                                // 让Process酌情处理。
                                 process.set_fault_state();
                             }
                         }
@@ -650,29 +564,23 @@ impl Kernel {
                         }
                         Some(ContextSwitchReason::Interrupted) => {
                             if scheduler_timer.get_remaining_us().is_none() {
-                                // This interrupt was a timeslice expiration.
+                                // 此中断是时间片到期。
                                 process.debug_timeslice_expired();
                                 return_reason = StoppedExecutingReason::TimesliceExpired;
                                 break;
                             }
-                            // Go to the beginning of loop to determine whether
-                            // to break to handle the interrupt, continue
-                            // executing this process, or switch to another
-                            // process.
+                            // 转到循环的开头来决定是中断处理中断，继续执行这个进程，还是切换到另一个进程。
                             continue;
                         }
                         None => {
-                            // Something went wrong when switching to this
-                            // process. Indicate this by putting it in a fault
-                            // state.
+                            // 切换到此过程时出现问题。 通过将其置于故障状态来指示这一点。
                             process.set_fault_state();
                         }
                     }
                 }
                 process::State::Yielded | process::State::Unstarted => {
-                    // If the process is yielded or hasn't been started it is
-                    // waiting for a upcall. If there is a task scheduled for
-                    // this process go ahead and set the process to execute it.
+                    // 如果该Process已产生或尚未开始，则它正在等待Upcall。
+                    // 如果有为此Process安排的任务，请继续并设置流程以执行它。
                     match process.dequeue_task() {
                         None => break,
                         Some(cb) => match cb {
@@ -699,9 +607,8 @@ impl Kernel {
                                         );
                                     },
                                     |ipc| {
-                                        // TODO(alevy): this could error for a variety of reasons.
-                                        // Should we communicate the error somehow?
-                                        // https://github.com/tock/tock/issues/1993
+                                        // TODO（alevy）：这可能由于多种原因而出错。
+                                        // 我们是否应该以某种方式传达错误https://github.com/tock/tock/issues/1993
                                         unsafe {
                                             let _ = ipc.schedule_upcall(
                                                 process.processid(),
@@ -716,7 +623,7 @@ impl Kernel {
                     }
                 }
                 process::State::Faulted | process::State::Terminated => {
-                    // We should never be scheduling a process in fault.
+                    // 我们永远不应该安排一个错误的进程。
                     panic!("Attempted to schedule a faulty process");
                 }
                 process::State::StoppedRunning => {
@@ -730,13 +637,11 @@ impl Kernel {
             }
         }
 
-        // Check how much time the process used while it was executing, and
-        // return the value so we can provide it to the scheduler.
+        // 检查进程在执行时使用了多少时间，并返回该值，以便我们可以将其提供给调度程序。
         let time_executed_us = timeslice_us.map_or(None, |timeslice| {
-            // Note, we cannot call `.get_remaining_us()` again if it has previously
-            // returned `None`, so we _must_ check the return reason first.
+            // 注意，如果 .get_remaining_us() 之前返回了 `None`，我们不能再次调用它，所以我们_必须_首先检查返回原因。
             if return_reason == StoppedExecutingReason::TimesliceExpired {
-                // used the whole timeslice
+                // 使用了整个时间片
                 Some(timeslice)
             } else {
                 match scheduler_timer.get_remaining_us() {
@@ -746,19 +651,16 @@ impl Kernel {
             }
         });
 
-        // Reset the scheduler timer in case it unconditionally triggers
-        // interrupts upon expiration. We do not want it to expire while the
-        // chip is sleeping, for example.
+        // 重置调度程序计时器，以防它在到期时无条件地触发中断。
+        // 例如，我们不希望它在芯片休眠时过期。
         scheduler_timer.reset();
 
         (return_reason, time_executed_us)
     }
 
-    /// Method to invoke a system call on a particular process. Applies the
-    /// kernel system call filtering policy (if any). Handles `Yield` and
-    /// `Exit`, dispatches `Memop` to `memop::memop`, and dispatches peripheral
-    /// driver system calls to peripheral driver capsules through the platforms
-    /// `with_driver` method.
+    /// 在特定Process上调用系统调用的方法。 应用内核系统调用过滤策略（如果有）。
+    /// 处理 `Yield` 和 `Exit`，将 `Memop` 分派到 `memop::memop`，
+    /// 并通过平台 `with_driver` 方法将外围驱动系统调用分派到外围驱动封装。
     #[inline]
     fn handle_syscall<KR: KernelResources<C>, C: Chip>(
         &self,
