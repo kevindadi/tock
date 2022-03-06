@@ -3,31 +3,27 @@
 /// 在内核中实现看门狗的特征。 从 `kernel_loop()` 代码调用此 trait 来设置和
 /// 维护看门狗定时器。 如何处理看门狗中断取决于特定的“芯片”。
 pub trait WatchDog {
-    /// This function must enable the watchdog timer and configure it to
-    /// trigger regulary. The period of the timer is left to the implementation
-    /// to decide. The implementation must ensure that it doesn't trigger too
-    /// early (when we haven't hung for example) or too late as to not catch
-    /// faults.
-    /// After calling this function the watchdog must be running.
+    /// 该功能必须使能看门狗定时器并配置为定时触发。
+    /// 定时器的周期留给实现来决定。
+    /// 实现必须确保它不会触发得太早（例如，当我们还没有挂起时）或太晚而无法捕获故障。
+
+    /// 调用此函数后，看门狗必须运行。
     fn setup(&self) {}
 
-    /// This function must tickle the watchdog to reset the timer.
-    /// If the watchdog was previously suspended then this should also
-    /// resume the timer.
+    /// 该函数必须触发看门狗来重置定时器。
+    /// 如果看门狗先前被暂停，那么这也应该恢复定时器。
     fn tickle(&self) {}
 
-    /// Suspends the watchdog timer. After calling this the timer should not
-    /// fire until after `tickle()` has been called. This function is called
-    /// before sleeping.
+    /// 暂停看门狗定时器。 调用此函数后，计时器不应触发，
+    /// 直到调用 `tickle()` 之后。 该函数在睡眠前调用。
     fn suspend(&self) {}
 
-    /// Resumes the watchdog timer. After calling this the timer should be
-    /// running again. This is called after returning from sleep, after
-    /// `suspend()` was called.
+    /// 恢复看门狗定时器。 调用此函数后，计时器应再次运行。
+    /// 在调用 `suspend()` 之后，在从睡眠中返回后调用它。
     fn resume(&self) {
         self.tickle();
     }
 }
 
-/// Implement default WatchDog trait for unit.
+/// 为Unit实现默认的 WatchDog Trait。
 impl WatchDog for () {}

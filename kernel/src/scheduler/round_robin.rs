@@ -1,18 +1,15 @@
-//! Round Robin Scheduler for Tock
+//! Tock 的循环调度程序
 //!
-//! This scheduler is specifically a Round Robin Scheduler with Interrupts.
+//! 这个调度器特别是一个带有中断的循环调度器。
 //!
 //! See: <https://www.eecs.umich.edu/courses/eecs461/lecture/SWArchitecture.pdf>
 //! for details.
 //!
-//! When hardware interrupts occur while a userspace process is executing, this
-//! scheduler executes the top half of the interrupt, and then stops executing
-//! the userspace process immediately and handles the bottom half of the
-//! interrupt. This design decision was made to mimic the behavior of the
-//! original Tock scheduler. In order to ensure fair use of timeslices, when
-//! userspace processes are interrupted the scheduler timer is paused, and the
-//! same process is resumed with the same scheduler timer value from when it was
-//! interrupted.
+//! 当用户空间进程正在执行时发生硬件中断时，此调度程序执行中断的上半部分，
+//! 然后立即停止执行用户空间进程并处理中断的下半部分。
+//! 这个设计决定是为了模仿原始 Tock 调度程序的行为。
+//! 为了确保时间片的公平使用，当用户空间进程被中断时，调度程序计时器会暂停，
+//! 并且相同的进程会使用与中断时相同的调度程序计时器值来恢复。
 
 use core::cell::Cell;
 
@@ -22,8 +19,8 @@ use crate::platform::chip::Chip;
 use crate::process::Process;
 use crate::scheduler::{Scheduler, SchedulingDecision};
 
-/// A node in the linked list the scheduler uses to track processes
-/// Each node holds a pointer to a slot in the processes array
+/// 调度程序用来跟踪进程的链表中的一个节点。
+/// 每个节点都有一个指针，指向进程数组中的一个slot
 pub struct RoundRobinProcessNode<'a> {
     proc: &'static Option<&'static dyn Process>,
     next: ListLink<'a, RoundRobinProcessNode<'a>>,
@@ -52,7 +49,7 @@ pub struct RoundRobinSched<'a> {
 }
 
 impl<'a> RoundRobinSched<'a> {
-    /// How long a process can run before being pre-empted
+    /// 进程在被抢占之前可以运行多长时间
     const DEFAULT_TIMESLICE_US: u32 = 10000;
     pub const fn new() -> RoundRobinSched<'a> {
         RoundRobinSched {
@@ -69,8 +66,9 @@ impl<'a, C: Chip> Scheduler<C> for RoundRobinSched<'a> {
             // No processes ready
             SchedulingDecision::TrySleep
         } else {
-            let mut next = None; // This will be replaced, bc a process is guaranteed
-                                 // to be ready if processes_blocked() is false
+            let mut next = None;
+            // This will be replaced, bc a process is guaranteed
+            // to be ready if processes_blocked() is false
 
             // Find next ready process. Place any *empty* process slots, or not-ready
             // processes, at the back of the queue.

@@ -1,4 +1,4 @@
-//! Multilevel feedback queue scheduler for Tock
+//! Tock 的多级反馈队列调度程序
 //!
 //! Based on the MLFQ rules described in "Operating Systems: Three Easy Pieces"
 //! by Remzi H. Arpaci-Dusseau and Andrea C. Arpaci-Dusseau.

@@ -1,23 +1,19 @@
-//! Cooperative Scheduler for Tock
+//! Tock 的协作调度器
 //!
-//! This scheduler runs all processes in a round-robin fashion, but does not use
-//! a scheduler timer to enforce process timeslices. That is, all processes are
-//! run cooperatively. Processes are run until they yield or stop executing
-//! (i.e. they crash or exit).
+//! 此调度程序以循环方式运行所有进程，但不使用调度程序计时器来强制执行进程时间片。
+//! 也就是说，所有进程都是协同运行的。
+//! 进程一直运行直到它们产生或停止执行（即它们崩溃或退出）。
 //!
-//! When hardware interrupts occur while a userspace process is executing, this
-//! scheduler executes the top half of the interrupt, and then stops executing
-//! the userspace process immediately and handles the bottom half of the
-//! interrupt. However it then continues executing the same userspace process
-//! that was executing.
-
+//! 当用户空间进程正在执行时发生硬件中断时，此调度程序执行中断的上半部分，
+//! 然后立即停止执行用户空间进程并处理中断的下半部分。
+//! 但是，它会继续执行之前正在执行的用户空间进程,简单来说上半部分不可抢占
 use crate::collections::list::{List, ListLink, ListNode};
 use crate::kernel::{Kernel, StoppedExecutingReason};
 use crate::platform::chip::Chip;
 use crate::process::Process;
 use crate::scheduler::{Scheduler, SchedulingDecision};
 
-/// A node in the linked list the scheduler uses to track processes
+/// 调度程序用于跟踪进程的链表中的节点
 pub struct CoopProcessNode<'a> {
     proc: &'static Option<&'static dyn Process>,
     next: ListLink<'a, CoopProcessNode<'a>>,
@@ -38,7 +34,7 @@ impl<'a> ListNode<'a, CoopProcessNode<'a>> for CoopProcessNode<'a> {
     }
 }
 
-/// Cooperative Scheduler
+/// 协作调度器
 pub struct CooperativeSched<'a> {
     pub processes: List<'a, CoopProcessNode<'a>>,
 }
@@ -57,8 +53,8 @@ impl<'a, C: Chip> Scheduler<C> for CooperativeSched<'a> {
             // No processes ready
             SchedulingDecision::TrySleep
         } else {
-            let mut next = None; // This will be replaced, bc a process is guaranteed
-                                 // to be ready if processes_blocked() is false
+            let mut next = None;
+            // 这将被替换，如果 processes_blocked() 为假，则保证进程准备就绪
 
             // Find next ready process. Place any *empty* process slots, or not-ready
             // processes, at the back of the queue.

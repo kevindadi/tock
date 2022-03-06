@@ -1,4 +1,4 @@
-//! Types for Tock-compatible processes.
+//! Tock-compatible进程的类型。
 
 use core::cell::Cell;
 use core::fmt;
@@ -16,7 +16,7 @@ use crate::syscall::{self, Syscall, SyscallReturn};
 use crate::upcall::UpcallId;
 use tock_tbf::types::CommandPermissions;
 
-// Export all process related types via `kernel::process::`.
+// 通过 `kernel::process::` 导出所有与进程相关的类型。
 pub use crate::process_policies::{
     PanicFaultPolicy, ProcessFaultPolicy, RestartFaultPolicy, StopFaultPolicy,
     StopWithDebugFaultPolicy, ThresholdRestartFaultPolicy, ThresholdRestartThenPanicFaultPolicy,
@@ -25,60 +25,45 @@ pub use crate::process_printer::{ProcessPrinter, ProcessPrinterContext, ProcessP
 pub use crate::process_standard::ProcessStandard;
 pub use crate::process_utilities::{load_processes, load_processes_advanced, ProcessLoadError};
 
-/// Userspace process identifier.
+/// 用户空间进程标识符
 ///
-/// This should be treated as an opaque type that can be used to represent a
-/// process on the board without requiring an actual reference to a `Process`
-/// object. Having this `ProcessId` reference type is useful for managing
-/// ownership and type issues in Rust, but more importantly `ProcessId` serves
-/// as a tool for capsules to hold pointers to applications.
+/// 这应该被视为一种不透明类型，可用于表示board上的进程，而无需实际引用“进程”对象。
+/// 拥有这个 `ProcessId` 引用类型对于管理 Rust 中的所有权和类型问题很有用，
+/// 但更重要的是，`ProcessId` 用作Capsule保存指向应用程序的指针的工具。
 ///
-/// Since `ProcessId` implements `Copy`, having an `ProcessId` does _not_ ensure
-/// that the process the `ProcessId` refers to is still valid. The process may
-/// have been removed, terminated, or restarted as a new process. Therefore, all
-/// uses of `ProcessId` in the kernel must check that the `ProcessId` is still
-/// valid. This check happens automatically when `.index()` is called, as noted
-/// by the return type: `Option<usize>`. `.index()` will return the index of the
-/// process in the processes array, but if the process no longer exists then
-/// `None` is returned.
+/// 由于 `ProcessId` 实现了 `Copy`，拥有 `ProcessId` 并不确保 `ProcessId` 引用的进程仍然有效。
+/// 该进程可能已被删除、终止或作为新进程重新启动。 因此，所有在内核中使用 `ProcessId`
+/// 都必须检查 `ProcessId` 是否仍然有效。 如前所述，此检查在调用 .index() 时
+/// 自动发生通过返回类型：`Option<usize>`。
+/// `.index()` 将返回进程数组中进程的索引，但如果进程不再存在，则返回 `None`。
 ///
-/// Outside of the kernel crate, holders of an `ProcessId` may want to use
-/// `.id()` to retrieve a simple identifier for the process that can be
-/// communicated over a UART bus or syscall interface. This call is guaranteed
-/// to return a suitable identifier for the `ProcessId`, but does not check that
-/// the corresponding application still exists.
+/// 在内核 crate 之外，`ProcessId` 的持有者可能希望使用 `.id()` 来检索可以通过
+/// UART 总线或系统调用接口进行通信的进程的简单标识符。 此调用保证为“ProcessId”
+/// 返回一个合适的标识符，但不检查相应的应用程序是否仍然存在。
 ///
-/// This type also provides capsules an interface for interacting with processes
-/// since they otherwise would have no reference to a `Process`. Very limited
-/// operations are available through this interface since capsules should not
-/// need to know the details of any given process. However, certain information
-/// makes certain capsules possible to implement. For example, capsules can use
-/// the `get_editable_flash_range()` function so they can safely allow an app to
-/// modify its own flash.
+/// 这种类型还为Capsule提供了一个与进程交互的接口，否则它们将不会引用“进程”。
+/// 通过这个接口可以进行非常有限的操作，因为Capsule不需要知道任何给定过程的细节。
+/// 然而，某些信息使某些Capsule成为可能。
+/// 例如，Capsule可以使用 `get_editable_flash_range()` 函数，这样它们就可以安全地
+/// 允许应用修改自己的闪存。
 #[derive(Clone, Copy)]
 pub struct ProcessId {
-    /// Reference to the main kernel struct. This is needed for checking on
-    /// certain properties of the referred app (like its editable bounds), but
-    /// also for checking that the index is valid.
+    /// 对主要内核结构的引用。 这是检查被引用应用程序的
+    /// 某些属性（如其可编辑边界）所必需的，也是检查索引是否有效所必需的。
     pub(crate) kernel: &'static Kernel,
 
-    /// The index in the kernel.PROCESSES[] array where this app's state is
-    /// stored. This makes for fast lookup of the process and helps with
-    /// implementing IPC.
+    /// kernel.PROCESSES[] 数组中存储此应用程序状态的索引。
+    /// 这有助于快速查找流程并有助于实施 IPC。
     ///
-    /// This value is crate visible to enable optimizations in sched.rs. Other
-    /// users should call `.index()` instead.
+    /// 这个值是 crate 可见的，可以在 sched.rs 中启用优化。 其他用户应改为调用 `.index()`。
     pub(crate) index: usize,
 
-    /// The unique identifier for this process. This can be used to refer to the
-    /// process in situations where a single number is required, for instance
-    /// when referring to specific applications across the syscall interface.
+    /// 此进程的唯一标识符。
+    /// 这可用于在需要单个数字的情况下引用进程，例如在跨系统调用接口引用特定应用程序时。
     ///
-    /// The combination of (index, identifier) is used to check if the app this
-    /// `ProcessId` refers to is still valid. If the stored identifier in the
-    /// process at the given index does not match the value saved here, then the
-    /// process moved or otherwise ended, and this `ProcessId` is no longer
-    /// valid.
+    /// (index, identifier) 的组合用于检查这个 `ProcessId` 引用的应用程序是否仍然有效。
+    /// 如果给定索引处进程中存储的标识符与此处保存的值不匹配，则进程移动或以其他方式结束，
+    /// 并且此“ProcessId”不再有效。
     identifier: usize,
 }
 
@@ -139,28 +124,22 @@ impl ProcessId {
         }
     }
 
-    /// Get a `usize` unique identifier for the app this `ProcessId` refers to.
+    /// 获取此 `ProcessId` 引用的应用程序的 `usize` 唯一标识符。
     ///
-    /// This function should not generally be used, instead code should just use
-    /// the `ProcessId` object itself to refer to various apps on the system.
-    /// However, getting just a `usize` identifier is particularly useful when
-    /// referring to a specific app with things outside of the kernel, say for
-    /// userspace (e.g. IPC) or tockloader (e.g. for debugging) where a concrete
-    /// number is required.
+    /// 通常不应该使用这个函数，而是代码应该只使用 `ProcessId` 对象本身来引用系统上的各种应用程序。
+    /// 然而，当使用内核之外的东西引用特定应用程序时，仅获取一个 `usize` 标识符特别有用，
+    /// 例如对于需要具体数字的用户空间（例如 IPC）或 tockloader（例如用于调试）。
     ///
-    /// Note, this will always return the saved unique identifier for the app
-    /// originally referred to, even if that app no longer exists. For example,
-    /// the app may have restarted, or may have been ended or removed by the
-    /// kernel. Therefore, calling `id()` is _not_ a valid way to check
-    /// that an application still exists.
+    /// 请注意，这将始终为最初引用的应用程序返回保存的唯一标识符，即使该应用程序不再存在。
+    /// 例如，应用程序可能已重新启动，或者可能已被内核终止或删除。
+    /// 因此，调用 `id()` _不是_检查应用程序是否仍然存在的有效方法。
     pub fn id(&self) -> usize {
         self.identifier
     }
 
-    /// Returns the full address of the start and end of the flash region that
-    /// the app owns and can write to. This includes the app's code and data and
-    /// any padding at the end of the app. It does not include the TBF header,
-    /// or any space that the kernel is using for any potential bookkeeping.
+    /// 返回应用程序拥有并可以写入的falsh区域的开始和结束的完整地址。
+    /// 包括应用程序的代码和数据以及应用程序末尾的任何填充。
+    /// 它不包括 TBF 标头或内核用于任何潜在book-keeping的任何空间。
     pub fn get_editable_flash_range(&self) -> (usize, usize) {
         self.kernel.process_map_or((0, 0), *self, |process| {
             let addresses = process.get_addresses();
@@ -169,186 +148,144 @@ impl ProcessId {
     }
 }
 
-/// This trait represents a generic process that the Tock scheduler can
-/// schedule.
+/// 此Trait表示 Tock 调度程序可以调度的通用进程。
 pub trait Process {
-    /// Returns the process's identifier.
+    /// 返回进程的标识符。
     fn processid(&self) -> ProcessId;
 
-    /// Queue a `Task` for the process. This will be added to a per-process
-    /// buffer and executed by the scheduler. `Task`s are some function the app
-    /// should run, for example a upcall or an IPC call.
+    /// 向进程队列计入一个“任务”。 这将被添加到每个进程的缓冲区并由调度程序执行。
+    /// `Task`s 是应用程序应该运行的一些功能，例如 upcall 或 IPC 调用。
     ///
-    /// This function returns `Ok(())` if the `Task` was successfully
-    /// enqueued. If the process is no longer alive,
-    /// `Err(ErrorCode::NODEVICE)` is returned. If the task could not
-    /// be enqueued because there is insufficient space in the
-    /// internal task queue, `Err(ErrorCode::NOMEM)` is
-    /// returned. Other return values must be treated as
-    /// kernel-internal errors.
+    /// 如果 `Task` 成功入队，此函数返回 `Ok(())`。
+    /// 如果进程不再存在，则返回 `Err(ErrorCode::NODEVICE)`。
+    /// 如果由于内部任务队列空间不足导致任务无法入队，则返回 `Err(ErrorCode::NOMEM)`。
+    /// 其他返回值必须被视为内核内部错误。
     fn enqueue_task(&self, task: Task) -> Result<(), ErrorCode>;
 
-    /// Returns whether this process is ready to execute.
+    /// 返回此进程是否已准备好执行。
     fn ready(&self) -> bool;
 
-    /// Return if there are any Tasks (upcalls/IPC requests) enqueued
-    /// for the process.
+    /// 如果有任何任务（upcalls/IPC 请求）在队列中，则返回。
     fn has_tasks(&self) -> bool;
 
-    /// Remove the scheduled operation from the front of the queue and return it
-    /// to be handled by the scheduler.
+    /// 从队列的最前面移除调度的操作，并返回给调度器处理。
     ///
-    /// If there are no `Task`s in the queue for this process this will return
-    /// `None`.
+    /// 如果此进程的队列中没有“任务”，这将返回“None”。
     fn dequeue_task(&self) -> Option<Task>;
 
-    /// Returns the number of pending tasks. If 0 then `dequeue_task()` will
-    /// return `None` when called.
+    /// 返回待处理任务的数量。 如果为 0，则 `dequeue_task()` 将在调用时返回 `None`。
     fn pending_tasks(&self) -> usize;
 
-    /// Remove all scheduled upcalls for a given upcall id from the task
-    /// queue.
+    /// 从任务队列中删除给定 upcall id 的所有在排队的 upcall。
     fn remove_pending_upcalls(&self, upcall_id: UpcallId);
 
-    /// Returns the current state the process is in. Common states are "running"
-    /// or "yielded".
+    /// 返回进程所处的当前状态。常见状态是“running”或“yielded”。
     fn get_state(&self) -> State;
 
-    /// Move this process from the running state to the yielded state.
+    /// 将此进程从running状态移动到yielded状态。
     ///
-    /// This will fail (i.e. not do anything) if the process was not previously
-    /// running.
+    /// 如果该进程之前没有运行，这将失败（即不做任何事情）。
     fn set_yielded_state(&self);
 
-    /// Move this process from running or yielded state into the stopped state.
+    /// 将此进程从running或yielded状态移动到stop状态。
     ///
-    /// This will fail (i.e. not do anything) if the process was not either
-    /// running or yielded.
+    /// 如果进程没有running或yielded，这将失败（即不做任何事情）。
     fn stop(&self);
 
-    /// Move this stopped process back into its original state.
+    /// 将此stop的进程移回其original状态。
     ///
-    /// This transitions a process from `StoppedRunning` -> `Running` or
-    /// `StoppedYielded` -> `Yielded`.
+    /// 这会将进程从 `StoppedRunning` -> `Running` 或 `StoppedYielded` -> `Yielded` 转换。
     fn resume(&self);
 
-    /// Put this process in the fault state. This will trigger the
-    /// `FaultResponse` for this process to occur.
+    /// 将此进程置于故障状态。 这将触发此过程发生的“FaultResponse”。
     fn set_fault_state(&self);
 
-    /// Returns how many times this process has been restarted.
+    /// 返回此进程已重新启动的次数。
     fn get_restart_count(&self) -> usize;
 
-    /// Get the name of the process. Used for IPC.
+    /// 获取进程的名称。 用于IPC。
     fn get_process_name(&self) -> &'static str;
 
-    /// Get the completion code if the process has previously terminated.
+    /// 如果进程先前已终止，则获取完成代码。
     ///
-    /// If the process has never terminated then there has been no opportunity
-    /// for a completion code to be set, and this will return `None`.
+    /// 如果进程从未终止，则没有机会设置完成代码，这将返回“None”。
     ///
-    /// If the process has previously terminated this will return `Some()`. If
-    /// the last time the process terminated it did not provide a completion
-    /// code (e.g. the process faulted), then this will return `Some(None)`. If
-    /// the last time the process terminated it did provide a completion code,
-    /// this will return `Some(Some(completion_code))`.
+    /// 如果进程先前已经终止，这将返回 `Some()`。 如果进程最后一次终止它没有提供完成代码
+    /// （例如进程出现故障），那么这将返回 `Some(None)`。
+    /// 如果进程最后一次终止它确实提供了一个完成代码，这将返回 `Some(Some(completion_code))`。
     fn get_completion_code(&self) -> Option<Option<u32>>;
 
-    /// Stop and clear a process's state, putting it into the `Terminated`
-    /// state.
+    /// 停止并清除进程的状态，将其置于“Terminated”状态。
     ///
-    /// This will end the process, but does not reset it such that it could be
-    /// restarted and run again. This function instead frees grants and any
-    /// queued tasks for this process, but leaves the debug information about
-    /// the process and other state intact.
+    /// 这将结束该过程，但不会重置它，以便它可以重新启动并再次运行。
+    /// 相反，此函数释放此进程的授权和任何排队的任务，
+    /// 但保留有关进程和其他状态的调试信息不变。
     ///
-    /// When a process is terminated, an optional `completion_code` should be
-    /// stored for the process. If the process provided the completion code
-    /// (e.g. via the exit syscall), then this function should be called with
-    /// a completion code of `Some(u32)`. If the kernel is terminating the
-    /// process and therefore has no completion code from the process, it should
-    /// provide `None`.
+    /// 当一个进程终止时，应该为该进程存储一个可选的“completion_code”。
+    /// 如果进程提供了完成代码（例如，通过退出系统调用），
+    /// 则应使用完成代码“Some(u32)”调用此函数。
+    /// 如果内核正在终止进程并且因此没有来自进程的完成代码，它应该提供“None”。
     fn terminate(&self, completion_code: Option<u32>);
 
-    /// Terminates and attempts to restart the process. The process and current
-    /// application always terminate. The kernel may, based on its own policy,
-    /// restart the application using the same process, reuse the process for
-    /// another application, or simply terminate the process and application.
+    /// 通过不再安排进程运行来停止进程。终止并尝试重新启动进程。 进程和当前应用程序总是终止。
+    /// 内核可以根据自己的策略，使用相同的进程重新启动应用程序，将进程重用于另一个应用程序，
+    /// 或者简单地终止进程和应用程序。
     ///
-    /// This function can be called when the process is in any state. It
-    /// attempts to reset all process state and re-initialize it so that it can
-    /// be reused.
+    /// 该函数可以在进程处于任何状态时调用。
+    /// 它尝试重置所有进程状态并重新初始化它，以便可以重用它。
     ///
-    /// Restarting an application can fail for two general reasons:
+    /// 重新启动应用程序可能会因两个一般原因而失败：
     ///
-    /// 1. The kernel chooses not to restart the application, based on its
-    ///    policy.
+    /// 1. 内核根据其策略选择不重新启动应用程序。
     ///
-    /// 2. The kernel decides to restart the application but fails to do so
-    ///    because Some state can no long be configured for the process. For
-    ///    example, the syscall state for the process fails to initialize.
+    /// 2. 内核决定重新启动应用程序但未能这样做，因为无法再为进程配置某些状态。
+    ///    例如，进程的系统调用状态无法初始化。
     ///
-    /// After `restart()` runs the process will either be queued to run its the
-    /// application's `_start` function, terminated, or queued to run a
-    /// different application's `_start` function.
+    /// 在 `restart()` 运行之后，进程要么排队运行其应用程序的 `_start` 函数，
+    /// 要么终止，要么排队运行不同应用程序的 `_start` 函数。
     ///
-    /// As the process will be terminated before being restarted, this function
-    /// accepts an optional `completion_code`. If the process provided a
-    /// completion code (e.g. via the exit syscall), then this should be called
-    /// with `Some(u32)`. If the kernel is trying to restart the process and the
-    /// process did not provide a completion code, then this should be called
-    /// with `None`.
+    /// 由于进程将在重新启动之前终止，因此此函数接受可选的 `completion_code`。
+    /// 如果进程提供了完成代码（例如，通过退出系统调用），那么应该使用 `Some(u32)` 调用它。
+    /// 如果内核试图重新启动进程并且进程没有提供完成代码，那么应该使用 `None` 调用它。
     fn try_restart(&self, completion_code: Option<u32>);
 
-    // memop operations
+    // memop操作
 
-    /// Change the location of the program break and reallocate the MPU region
-    /// covering program memory.
+    /// 更改程序中断的位置并重新分配覆盖程序内存的 MPU 区域。
     ///
-    /// This will fail with an error if the process is no longer active. An
-    /// inactive process will not run again without being reset, and changing
-    /// the memory pointers is not valid at this point.
+    /// 如果进程不再处于活动状态，这将失败并出现错误。
+    /// 一个不活动的进程在没有被重置的情况下不会再次运行，此时更改内存指针是无效的。
     fn brk(&self, new_break: *const u8) -> Result<*const u8, Error>;
 
-    /// Change the location of the program break, reallocate the MPU region
-    /// covering program memory, and return the previous break address.
+    /// 改变程序中断的位置，重新分配覆盖程序内存的 MPU 区域，并返回之前的中断地址。
     ///
-    /// This will fail with an error if the process is no longer active. An
-    /// inactive process will not run again without being reset, and changing
-    /// the memory pointers is not valid at this point.
+    /// 如果进程不再处于活动状态，这将失败并出现错误。
+    /// 一个不活动的进程在没有被重置的情况下不会再次运行，此时更改内存指针是无效的。
     fn sbrk(&self, increment: isize) -> Result<*const u8, Error>;
 
-    /// How many writeable flash regions defined in the TBF header for this
-    /// process.
+    /// 在 TBF 标头中为此进程定义了多少可写闪存区域。
     fn number_writeable_flash_regions(&self) -> usize;
 
-    /// Get the offset from the beginning of flash and the size of the defined
-    /// writeable flash region.
+    /// 获取从flash开始的偏移量和定义的可写flash区域的大小。
     fn get_writeable_flash_region(&self, region_index: usize) -> (u32, u32);
 
-    /// Debug function to update the kernel on where the stack starts for this
-    /// process. Processes are not required to call this through the memop
-    /// system call, but it aids in debugging the process.
+    /// 调试函数，用于更新内核在此进程的堆栈开始位置。
+    /// 进程不需要通过 memop 系统调用来调用它，但它有助于调试进程。
     fn update_stack_start_pointer(&self, stack_pointer: *const u8);
 
-    /// Debug function to update the kernel on where the process heap starts.
-    /// Also optional.
+    /// 调试功能来更新进程堆开始的内核。也是可选的。
     fn update_heap_start_pointer(&self, heap_pointer: *const u8);
 
-    /// Creates a [`ReadWriteProcessBuffer`] from the given offset and size in
-    /// process memory.
+    /// 从进程内存中的给定偏移量和大小创建一个 [`ReadWriteProcessBuffer`]。
     ///
     /// ## Returns
     ///
-    /// In case of success, this method returns the created
-    /// [`ReadWriteProcessBuffer`].
+    /// 如果成功，此方法返回创建的 [`ReadWriteProcessBuffer`]。
     ///
-    /// In case of an error, an appropriate ErrorCode is returned:
+    /// 如果出现错误，则返回适当的 ErrorCode：
     ///
-    /// - If the memory is not contained in the process-accessible memory space
-    ///   / `buf_start_addr` and `size` are not a valid read-write buffer (any
-    ///   byte in the range is not read/write accessible to the process),
-    ///   [`ErrorCode::INVAL`].
+    /// - 如果内存不包含在进程可访问的内存空间`buf_start_addr`和`size`
+    ///   不是有效的读写缓冲区（范围内的任何字节都不能被进程读/写访问），[`ErrorCode::INVAL`]。
     /// - If the process is not active: [`ErrorCode::FAIL`].
     /// - For all other errors: [`ErrorCode::FAIL`].
     fn build_readwrite_process_buffer(
@@ -357,8 +294,7 @@ pub trait Process {
         size: usize,
     ) -> Result<ReadWriteProcessBuffer, ErrorCode>;
 
-    /// Creates a [`ReadOnlyProcessBuffer`] from the given offset and size in
-    /// process memory.
+    /// 从进程内存中的给定偏移量和大小创建一个 [`ReadOnlyProcessBuffer`]。
     ///
     /// ## Returns
     ///
@@ -379,41 +315,32 @@ pub trait Process {
         size: usize,
     ) -> Result<ReadOnlyProcessBuffer, ErrorCode>;
 
-    /// Set a single byte within the process address space at `addr` to `value`.
-    /// Return true if `addr` is within the RAM bounds currently exposed to the
-    /// process (thereby writable by the process itself) and the value was set,
-    /// false otherwise.
+    /// 在 `addr` 的进程地址空间中将单个字节设置为 `value`。
+    /// 如果 `addr` 在当前暴露给进程的 RAM 范围内（因此可由进程本身写入）并且值已设置，
+    /// 则返回 true，否则返回 false。
     ///
-    /// ### Safety
+    ///  ### safety
     ///
-    /// This function verifies that the byte to be written is in the process's
-    /// accessible memory. However, to avoid undefined behavior the caller needs
-    /// to ensure that no other references exist to the process's memory before
-    /// calling this function.
+    /// 此函数验证要写入的字节是否在进程的可访问内存中。
+    /// 但是，为了避免未定义的行为，调用者需要确保在调用此函数之前不存在对进程内存的其他引用。
     unsafe fn set_byte(&self, addr: *mut u8, value: u8) -> bool;
 
-    /// Return the permissions for this process for a given `driver_num`.
+    /// 返回给定 `driver_num` 的此进程的权限。
     ///
-    /// The returned `CommandPermissions` will indicate if any permissions for
-    /// individual command numbers are specified. If there are permissions set
-    /// they are returned as a 64 bit bitmask for sequential command numbers.
-    /// The offset indicates the multiple of 64 command numbers to get permissions for.
+    /// 返回的 `CommandPermissions` 将指示是否为单个命令号指定了任何权限。
+    /// 如果设置了权限，它们将作为顺序命令号的 64 位 bitmask 返回。 偏移量表示要获得权限的 64 个命令编号的倍数。
     fn get_command_permissions(&self, driver_num: usize, offset: usize) -> CommandPermissions;
 
     // mpu
 
-    /// Configure the MPU to use the process's allocated regions.
+    /// 配置 MPU 以使用进程的分配区域。
     ///
-    /// It is not valid to call this function when the process is inactive (i.e.
-    /// the process will not run again).
+    /// 当进程处于非活动状态（即进程不会再次运行）时，调用此函数无效。
     fn setup_mpu(&self);
 
-    /// Allocate a new MPU region for the process that is at least
-    /// `min_region_size` bytes and lies within the specified stretch of
-    /// unallocated memory.
+    /// 为进程分配一个新的 MPU 区域，该区域至少为 `min_region_size` 字节，并且位于指定的未分配内存范围内。
     ///
-    /// It is not valid to call this function when the process is inactive (i.e.
-    /// the process will not run again).
+    /// 当进程处于非活动状态（即进程不会再次运行）时，调用此函数无效。
     fn add_mpu_region(
         &self,
         unallocated_memory_start: *const u8,
@@ -421,29 +348,23 @@ pub trait Process {
         min_region_size: usize,
     ) -> Option<mpu::Region>;
 
-    /// Removes an MPU region from the process that has been previouly added with
-    /// `add_mpu_region`.
+    /// 从先前使用 `add_mpu_region` 添加的进程中删除 MPU 区域。
     ///
-    /// It is not valid to call this function when the process is inactive (i.e.
-    /// the process will not run again).
+    /// 当进程处于非活动状态（即进程不会再次运行）时，调用此函数无效。
     fn remove_mpu_region(&self, region: mpu::Region) -> Result<(), ErrorCode>;
 
     // grants
 
-    /// Allocate memory from the grant region and store the reference in the
-    /// proper grant pointer index.
+    /// 从Grant区域分配内存并将引用存储在正确的Grant指针索引中。
     ///
-    /// This function must check that doing the allocation does not cause
-    /// the kernel memory break to go below the top of the process accessible
-    /// memory region allowed by the MPU. Note, this can be different from the
-    /// actual app_brk, as MPU alignment and size constraints may result in the
-    /// MPU enforced region differing from the app_brk.
+    /// 此函数必须检查执行分配不会导致内核内存中断低于 MPU 允许的进程可访问内存区域的顶部。
+    /// 请注意，这可能与实际的 app_brk 不同，因为 MPU 对齐和大小限制可能导致 MPU 强制区域与 app_brk 不同。
     ///
-    /// This will return `None` and fail if:
-    /// - The process is inactive, or
-    /// - There is not enough available memory to do the allocation, or
-    /// - The grant_num is invalid, or
-    /// - The grant_num already has an allocated grant.
+    /// 这将返回 `None` 并在以下情况下失败:
+    /// - 进程处于非活动状态
+    /// - 没有足够的可用内存来进行分配
+    /// - grant_num 无效
+    /// - grant_num 已经分配了一个Grant
     fn allocate_grant(
         &self,
         grant_num: usize,
@@ -452,127 +373,98 @@ pub trait Process {
         align: usize,
     ) -> Option<NonNull<u8>>;
 
-    /// Check if a given grant for this process has been allocated.
+    /// 检查是否已为此Process分配给定的Grant。
     ///
-    /// Returns `None` if the process is not active. Otherwise, returns `true`
-    /// if the grant has been allocated, `false` otherwise.
+    /// 如果进程未处于活动状态，则返回“None”。 否则，如果已分配Grant，则返回 `true`，否则返回 `false`。
     fn grant_is_allocated(&self, grant_num: usize) -> Option<bool>;
 
-    /// Allocate memory from the grant region that is `size` bytes long and
-    /// aligned to `align` bytes. This is used for creating custom grants which
-    /// are not recorded in the grant pointer array, but are useful for capsules
-    /// which need additional process-specific dynamically allocated memory.
+    /// 从“size”字节长并与“align”字节对齐的Grant区域分配内存。
+    /// 这用于创建未记录在Grant指针数组中的自定义Grant，但对于需要额外的特定于进程的动态分配内存的Capsule很有用。
     ///
-    /// If successful, return a Some() with an identifier that can be used with
-    /// `enter_custom_grant()` to get access to the memory and the pointer to
-    /// the memory which must be used to initialize the memory.
+    /// 如果成功，则返回带有标识符的 Some()，该标识符可与 `enter_custom_grant()`
+    /// 一起使用以访问内存和指向必须用于初始化内存的内存的指针。
     fn allocate_custom_grant(
         &self,
         size: usize,
         align: usize,
     ) -> Option<(ProcessCustomGrantIdentifer, NonNull<u8>)>;
 
-    /// Enter the grant based on `grant_num` for this process.
+    /// 为此Process输入基于“grant_num”的Grant。
     ///
-    /// Entering a grant means getting access to the actual memory for the
-    /// object stored as the grant.
+    /// 输入Grant意味着访问存储为Grant的对象的实际内存。
     ///
-    /// This will return an `Err` if the process is inactive of the `grant_num`
-    /// is invalid, if the grant has not been allocated, or if the grant is
-    /// already entered. If this returns `Ok()` then the pointer points to the
-    /// previously allocated memory for this grant.
+    /// 如果进程处于非活动状态且“grant_num”无效、未分配Grant或已输入Grant，这将返回“Err”。
+    /// 如果这返回“Ok()”，则指针指向先前为此授予分配的内存。
     fn enter_grant(&self, grant_num: usize) -> Result<*mut u8, Error>;
 
-    /// Enter a custom grant based on the `identifier`.
+    /// 输入基于“identifier”的自定义Grant
     ///
-    /// This retrieves a pointer to the previously allocated custom grant based
-    /// on the identifier returned when the custom grant was allocated.
+    /// 这将根据分配自定义Grant时返回的标识符检索指向先前分配的自定义Grant的指针。
     ///
-    /// This returns an error if the custom grant is no longer accessible, or
-    /// if the process is inactive.
+    /// 如果自定义Grant不再可访问，或者进程处于非活动状态，这将返回错误。
     fn enter_custom_grant(&self, identifier: ProcessCustomGrantIdentifer)
         -> Result<*mut u8, Error>;
 
-    /// Opposite of `enter_grant()`. Used to signal that the grant is no longer
-    /// entered.
+    /// 与`enter_grant()`相反。 用于表示不再输入Grant。
     ///
-    /// If `grant_num` is valid, this function cannot fail. If `grant_num` is
-    /// invalid, this function will do nothing. If the process is inactive then
-    /// grants are invalid and are not entered or not entered, and this function
-    /// will do nothing.
+    /// 如果 `grant_num` 有效，则此函数不会失败。 如果 `grant_num` 无效，此函数将不执行任何操作。
+    /// 如果进程处于非活动状态，则授权无效且未输入或未输入，此函数将不执行任何操作。
     fn leave_grant(&self, grant_num: usize);
 
-    /// Return the count of the number of allocated grant pointers if the
-    /// process is active. This does not count custom grants. This is used
-    /// to determine if a new grant has been allocated after a call to
-    /// `SyscallDriver::allocate_grant()`.
+    /// 如果进程处于活动状态，则返回分配的Grant指针数。 这不包括自定义Grant。
+    /// 这用于确定在调用 `SyscallDriver::allocate_grant()` 后是否分配了新的Grant。
     ///
-    /// Useful for debugging/inspecting the system.
+    /// 用于调试/检查系统。
     fn grant_allocated_count(&self) -> Option<usize>;
 
-    /// Get the grant number (grant_num) associated with a given driver number
-    /// if there is a grant associated with that driver_num.
+    /// 如果存在与给定驱动程序编号关联的Grant，则获取与给定驱动程序编号关联的Grant编号 (grant_num)。
     fn lookup_grant_from_driver_num(&self, driver_num: usize) -> Result<usize, Error>;
 
     // subscribe
 
-    /// Verify that an Upcall function pointer is within process-accessible
-    /// memory.
+    /// 验证 Upcall 函数指针是否在进程可访问内存中。
     ///
-    /// Returns `true` if the upcall function pointer is valid for this process,
-    /// and `false` otherwise.
+    /// 如果 upcall 函数指针对该进程有效，则返回 `true`，否则返回 `false`。
     fn is_valid_upcall_function_pointer(&self, upcall_fn: NonNull<()>) -> bool;
 
-    // functions for processes that are architecture specific
+    // 特定于体系结构的进程的功能
 
-    /// Set the return value the process should see when it begins executing
-    /// again after the syscall.
+    /// 设置进程在系统调用后再次开始执行时应该看到的返回值。
     ///
-    /// It is not valid to call this function when the process is inactive (i.e.
-    /// the process will not run again).
+    /// 当进程处于非活动状态（即进程不会再次运行）时，调用此函数无效。
     ///
-    /// This can fail, if the UKB implementation cannot correctly set the return
-    /// value. An example of how this might occur:
+    /// 如果 UKB 实现无法正确设置返回值，这可能会失败。 这是如何发生的一个例子：
     ///
-    /// 1. The UKB implementation uses the process's stack to transfer values
-    ///    between kernelspace and userspace.
-    /// 2. The process calls memop.brk and reduces its accessible memory region
-    ///    below its current stack.
-    /// 3. The UKB implementation can no longer set the return value on the
-    ///    stack since the process no longer has access to its stack.
+    /// 1. UKB 实现使用进程的堆栈在内核空间和用户空间之间传输值。
+    /// 2. 进程调用 memop.brk 并将其可访问的内存区域减少到其当前堆栈之下。
+    /// 3. UKB 实现不能再在栈上设置返回值，因为进程不再有权访问它的栈。
     ///
-    /// If it fails, the process will be put into the faulted state.
+    /// 如果失败，进程将进入故障状态。
     fn set_syscall_return_value(&self, return_value: SyscallReturn);
 
-    /// Set the function that is to be executed when the process is resumed.
+    /// 设置进程恢复时要执行的功能。
     ///
-    /// It is not valid to call this function when the process is inactive (i.e.
-    /// the process will not run again).
+    /// 当进程处于非活动状态（即进程不会再次运行）时，调用此函数无效。
     fn set_process_function(&self, callback: FunctionCall);
 
-    /// Context switch to a specific process.
+    /// 上下文切换到特定进程。
     ///
-    /// This will return `None` if the process is inactive and cannot be
-    /// switched to.
+    /// 如果进程处于非活动状态且无法切换到，这将返回“None”。
     fn switch_to(&self) -> Option<syscall::ContextSwitchReason>;
 
-    /// Return process state information related to the location in memory
-    /// of various process data structures.
+    /// 返回与各种进程数据结构在内存中的位置相关的进程状态信息。
     fn get_addresses(&self) -> ProcessAddresses;
 
-    /// Return process state information related to the size in memory of
-    /// various process data structures.
+    /// 返回与各种进程数据结构在内存中的大小相关的进程状态信息。
     fn get_sizes(&self) -> ProcessSizes;
 
-    /// Write stored state as a binary blob into the `out` slice. Returns the number of bytes
-    /// written to `out` on success.
+    /// 将存储的状态作为二进制 blob 写入 `out` 切片。 返回成功时写入 `out` 的字节数。
     ///
-    /// Returns `ErrorCode::SIZE` if `out` is too short to hold the stored state binary
-    /// representation. Returns `ErrorCode::FAIL` on an internal error.
+    /// 如果 `out` 太短而无法保存存储的状态二进制表示，则返回 `ErrorCode::SIZE`。
+    /// 在内部错误时返回 `ErrorCode::FAIL`。
     fn get_stored_state(&self, out: &mut [u8]) -> Result<usize, ErrorCode>;
 
-    /// Print out the full state of the process: its memory map, its
-    /// context, and the state of the memory protection unit (MPU).
+    /// 打印出进程的完整状态：它的内存映射、它的上下文和内存保护单元 (MPU) 的状态。
     fn print_full_process(&self, writer: &mut dyn Write);
 
     // debug
@@ -598,19 +490,14 @@ pub trait Process {
     fn debug_syscall_last(&self) -> Option<Syscall>;
 }
 
-/// Opaque identifier for custom grants allocated dynamically from a process's
-/// grant region.
+/// 从进程的Grant区域动态分配的自定义Grant的不透明标识符-Opaque identifier
 ///
-/// This type allows Process to provide a handle to a custom grant within a
-/// process's memory that `ProcessGrant` can use to access the custom grant
-/// memory later.
+/// 此类型允许 Process 为进程内存中的自定义Grant提供句柄，
+/// “ProcessGrant”稍后可以使用该句柄访问自定义Grant内存。
 ///
-/// We use this type rather than a direct pointer so that any attempt to access
-/// can ensure the process still exists and is valid, and that the custom grant
-/// has not been freed.
+/// 我们使用这种类型而不是直接指针，以便任何访问尝试都可以确保进程仍然存在并且有效，并且自定义Grant尚未被释放。
 ///
-/// The fields of this struct are private so only Process can create this
-/// identifier.
+/// 此结构的字段是私有的，因此只有 Process 可以创建此标识符。
 #[derive(Copy, Clone)]
 pub struct ProcessCustomGrantIdentifer {
     pub(crate) offset: usize,
@@ -618,22 +505,17 @@ pub struct ProcessCustomGrantIdentifer {
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum Error {
-    /// The process has been removed and no longer exists. For example, the
-    /// kernel could stop a process and re-claim its resources.
+    /// 该进程已被删除，不再存在。 例如，内核可以停止一个进程并重新声明其资源。
     NoSuchApp,
-    /// The process does not have enough memory to complete the requested
-    /// operation.
+    /// 进程没有足够的内存来完成请求的操作。
     OutOfMemory,
-    /// The provided memory address is not accessible or not valid for the
-    /// process.
+    /// 提供的内存地址不可访问或对进程无效。
     AddressOutOfBounds,
-    /// The process is inactive (likely in a fault or exit state) and the
-    /// attempted operation is therefore invalid.
+    /// 该进程处于非活动状态（可能处于故障或退出状态），因此尝试的操作无效。
     InactiveApp,
-    /// This likely indicates a bug in the kernel and that some state is
-    /// inconsistent in the kernel.
+    /// 这可能表明内核中存在错误，并且内核中的某些状态不一致。
     KernelError,
-    /// Indicates some process data, such as a Grant, is already borrowed.
+    /// 表示已经借用了一些process data，例如 Grant。
     AlreadyInUse,
 }
 
@@ -663,51 +545,39 @@ impl From<Error> for ErrorCode {
     }
 }
 
-/// Various states a process can be in.
+/// 进程可以处于的各种状态。
 ///
-/// This is made public in case external implementations of `Process` want
-/// to re-use these process states in the external implementation.
+/// 如果”Process”的外部实现想要在外部实现中重用这些Process state，则会将其公开。
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum State {
-    /// Process expects to be running code. The process may not be currently
-    /// scheduled by the scheduler, but the process has work to do if it is
-    /// scheduled.
+    /// 进程期望正在运行的代码。
+    /// 该进程当前可能没有被调度程序调度，但如果它被调度，则该进程有工作要做。
     Running,
 
-    /// Process stopped executing and returned to the kernel because it called
-    /// the `yield` syscall. This likely means it is waiting for some event to
-    /// occur, but it could also mean it has finished and doesn't need to be
-    /// scheduled again.
+    /// 进程停止执行并返回内核，因为它调用了 `yield` 系统调用。
+    /// 这可能意味着它正在等待某个事件发生，但也可能意味着它已经完成并且不需要再次安排。
     Yielded,
 
-    /// The process is stopped, and its previous state was Running. This is used
-    /// if the kernel forcibly stops a process when it is in the `Running`
-    /// state. This state indicates to the kernel not to schedule the process,
-    /// but if the process is to be resumed later it should be put back in the
-    /// running state so it will execute correctly.
+    /// 该进程已停止，其先前的状态为正在运行。 如果内核在处于“Running”状态时强制停止进程，
+    /// 则使用此选项。 此状态指示内核不要调度该进程，但如果稍后要恢复该进程，
+    /// 则应将其放回运行状态，以便正确执行。
     StoppedRunning,
 
-    /// The process is stopped, and it was stopped while it was yielded. If this
-    /// process needs to be resumed it should be put back in the `Yield` state.
+    /// 该过程已停止，并在它产生时停止。 如果需要恢复此过程，则应将其放回“Yield”状态。
     StoppedYielded,
 
     /// The process faulted and cannot be run.
     Faulted,
 
-    /// The process exited with the `exit-terminate` system call and cannot be
-    /// run.
+    /// 进程以“exit-terminate”系统调用退出，无法运行。
     Terminated,
 
-    /// The process has never actually been executed. This of course happens
-    /// when the board first boots and the kernel has not switched to any
-    /// processes yet. It can also happen if an process is terminated and all of
-    /// its state is reset as if it has not been executed yet.
+    /// 该过程从未真正执行过。 这当然发生在板子首次启动并且内核尚未切换到任何进程时。
+    /// 如果一个进程被终止并且它的所有状态都被重置，就好像它还没有被执行一样，它也可能发生。
     Unstarted,
 }
 
-/// A wrapper around `Cell<State>` is used by `Process` to prevent bugs arising
-/// from the state duplication in the kernel work tracking and process state
-/// tracking.
+/// `Process` 使用 `Cell<State>` 的包装器来防止内核工作跟踪和进程状态跟踪中的状态重复引起的错误。
 pub(crate) struct ProcessStateCell<'a> {
     state: Cell<State>,
     kernel: &'a Kernel,
@@ -737,65 +607,54 @@ impl<'a> ProcessStateCell<'a> {
     }
 }
 
-/// The action the kernel should take when a process encounters a fault.
+/// 当进程遇到故障时内核应该采取的行动。
 ///
-/// When an exception occurs during a process's execution (a common example is a
-/// process trying to access memory outside of its allowed regions) the system
-/// will trap back to the kernel, and the kernel has to decide what to do with
-/// the process at that point.
+/// 当进程执行期间发生异常时（一个常见的例子是进程试图访问其允许区域之外的内存），
+/// 系统将陷回内核，并且内核必须在此时决定如何处理该进程。
 ///
-/// The actions are separate from the policy on deciding which action to take. A
-/// separate process-specific policy should determine which action to take.
+/// 这些行动与决定采取何种行动的政策是分开的。
+/// 一个单独的特定于过程的策略应该确定要采取的行动。
 #[derive(Copy, Clone)]
 pub enum FaultAction {
-    /// Generate a `panic!()` call and crash the entire system. This is useful
-    /// for debugging applications as the error is displayed immediately after
-    /// it occurs.
+    /// 生成一个 `panic!()` 调用并使整个系统崩溃。 这对于调试应用程序很有用，因为错误在发生后会立即显示。
     Panic,
 
-    /// Attempt to cleanup and restart the process which caused the fault. This
-    /// resets the process's memory to how it was when the process was started
-    /// and schedules the process to run again from its init function.
+    /// 尝试清理并重新启动导致故障的进程。
+    /// 这会将进程的内存重置为进程启动时的状态，并安排进程从其 init 函数再次运行。
     Restart,
 
-    /// Stop the process by no longer scheduling it to run.
+    /// 通过不再安排它运行来停止该进程。
     Stop,
 }
 
 /// Tasks that can be enqueued for a process.
 ///
-/// This is public for external implementations of `Process`.
+/// 这对于“Process”的外部实现是公开的。
 #[derive(Copy, Clone)]
 pub enum Task {
-    /// Function pointer in the process to execute. Generally this is a upcall
-    /// from a capsule.
+    /// 进程中要执行的函数指针。 通常这是来自capsule的upcall。
     FunctionCall(FunctionCall),
-    /// An IPC operation that needs additional setup to configure memory access.
+    /// 需要额外设置来配置内存访问的 IPC 操作。
     IPC((ProcessId, ipc::IPCUpcallType)),
 }
 
-/// Enumeration to identify whether a function call for a process comes directly
-/// from the kernel or from a upcall subscribed through a `Driver`
-/// implementation.
+/// 枚举以确定进程的函数调用是直接来自内核还是来自通过“Driver”实现订阅的upcall。
 ///
 /// An example of a kernel function is the application entry point.
 #[derive(Copy, Clone, Debug)]
 pub enum FunctionCallSource {
-    /// For functions coming directly from the kernel, such as `init_fn`.
+    /// 对于直接来自内核的函数，例如 `init_fn`。
     Kernel,
-    /// For functions coming from capsules or any implementation of `Driver`.
+    /// 对于来自Capsule的功能或“Driver”的任何实现。
     Driver(UpcallId),
 }
 
-/// Struct that defines a upcall that can be passed to a process. The upcall
-/// takes four arguments that are `Driver` and upcall specific, so they are
-/// represented generically here.
+/// 定义可以传递给进程的upcall的结构。
+/// upcall 需要四个参数，它们是 `Driver` 和 upcall 特定的，所以它们在这里一般表示。
 ///
-/// Likely these four arguments will get passed as the first four register
-/// values, but this is architecture-dependent.
+/// 这四个参数可能会作为前四个寄存器值传递，但这取决于架构。
 ///
-/// A `FunctionCall` also identifies the upcall that scheduled it, if any, so
-/// that it can be unscheduled when the process unsubscribes from this upcall.
+/// `FunctionCall` 还标识了调度它的 upcall（如果有），以便在进程取消订阅此 upcall 时可以取消调度它。
 #[derive(Copy, Clone, Debug)]
 pub struct FunctionCall {
     pub source: FunctionCallSource,
@@ -806,62 +665,45 @@ pub struct FunctionCall {
     pub pc: usize,
 }
 
-/// Collection of process state information related to the memory addresses
-/// of different elements of the process.
+/// 收集与进程elements的内存地址相关的进程状态信息。
 pub struct ProcessAddresses {
-    /// The address of the beginning of the process's region in nonvolatile
-    /// memory.
+    /// 进程区域在非易失性内存中的开始地址。
     pub flash_start: usize,
-    /// The address of the beginning of the region the process has access to in
-    /// nonvolatile memory. This is after the TBF header and any other memory
-    /// the kernel has reserved for its own use.
+    /// 进程在非易失性存储器中可以访问的区域的开始地址。
+    /// 这是在 TBF 标头和内核保留供自己使用的任何其他内存之后。
     pub flash_non_protected_start: usize,
-    /// The address immediately after the end of the region allocated for this
-    /// process in nonvolatile memory.
+    /// 在非易失性内存中为该进程分配的区域结束后紧接的地址。
     pub flash_end: usize,
 
-    /// The address of the beginning of the process's allocated region in
-    /// memory.
+    /// 进程在内存中分配区域的开始地址。
     pub sram_start: usize,
-    /// The address of the application break. This is the address immediately
-    /// after the end of the memory the process has access to.
+    /// 应用程序中断的地址。 这是进程可以访问的内存结束后的地址。
     pub sram_app_brk: usize,
-    /// The lowest address of any allocated grant. This is the start of the
-    /// region the kernel is using for its own internal state on behalf of this
-    /// process.
+    /// 任何已分配Grant的最低地址。 这是内核代表该进程用于其内部状态的区域的开始。
     pub sram_grant_start: usize,
-    /// The address immediately after the end of the region allocated for this
-    /// process in memory.
+    /// 紧接在内存中为此进程分配的区域结束后的地址。
     pub sram_end: usize,
 
-    /// The address of the start of the process's heap, if known. Note, managing
-    /// this is completely up to the process, and the kernel relies on the
-    /// process explicitly notifying it of this address. Therefore, its possible
-    /// the kernel does not know the start address, or its start address could
-    /// be incorrect.
+    /// 进程堆的起始地址（如果已知）。 注意，管理这完全取决于进程，
+    /// 内核依赖于进程显式地通知它这个地址。
+    /// 因此，内核可能不知道起始地址，或者它的起始地址不正确。
     pub sram_heap_start: Option<usize>,
-    /// The address of the top (or start) of the process's stack, if known.
-    /// Note, managing the stack is completely up to the process, and the kernel
-    /// relies on the process explicitly notifying it of where it started its
-    /// stack. Therefore, its possible the kernel does not know the start
-    /// address, or its start address could be incorrect.
+    /// 进程堆栈的顶部（或开始）地址（如果已知）。 请注意，管理堆栈完全取决于进程，
+    /// 并且内核依赖于进程显式地通知它它从哪里开始堆栈。
+    /// 因此，内核可能不知道起始地址，或者它的起始地址不正确。
     pub sram_stack_top: Option<usize>,
-    /// The lowest address the kernel has seen the stack pointer. Note, the
-    /// stack is entirely managed by the process, and the process could
-    /// intentionally obscure this address from the kernel. Also, the stack may
-    /// have reached a lower address, this is only the lowest address seen when
-    /// the process calls a syscall.
+    /// 内核看到堆栈指针的最低地址。 请注意，堆栈完全由进程管理，
+    /// 进程可能会故意从内核中隐藏这个地址。
+    /// 此外，堆栈可能已到达较低地址，这只是进程调用系统调用时看到的最低地址。
     pub sram_stack_bottom: Option<usize>,
 }
 
-/// Collection of process state related to the size in memory of various process
-/// structures.
+/// 与各种进程结构在内存中的大小相关的进程状态的集合。
 pub struct ProcessSizes {
-    /// The number of bytes used for the grant pointer table.
+    /// 用于Grant指针表的字节数。
     pub grant_pointers: usize,
-    /// The number of bytes used for the pending upcall queue.
+    /// 用于Pending的upcall队列的字节数。
     pub upcall_list: usize,
-    /// The number of bytes used for the process control block (i.e. the
-    /// `ProcessX` struct).
+    /// 用于进程控制块的字节数（即“ProcessX”结构）。
     pub process_control_block: usize,
 }

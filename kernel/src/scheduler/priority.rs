@@ -1,4 +1,4 @@
-//! Fixed Priority Scheduler for Tock
+//! Tock 的固定优先级调度程序
 //!
 //! This scheduler assigns priority to processes based on their order in the
 //! `PROCESSES` array, and runs the highest priority process available at any

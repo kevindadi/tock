@@ -1,95 +1,67 @@
 //! Core Tock Kernel
 //!
-//! The kernel crate implements the core features of Tock as well as shared
-//! code that many chips, capsules, and boards use. It also holds the Hardware
-//! Interface Layer (HIL) definitions.
+//! 内核 crate 实现了 Tock 的核心功能以及许多Chip、capsule和board使用的共享代码。
+//! 它还包含硬件接口层 (HIL) 定义。
 //!
-//! Most `unsafe` code is in this kernel crate.
+//! 大多数“不安全”代码都在这个内核包中。
 //!
 //!
-//! ## Core Kernel Visibility
+//! ## 核心内核可见性
 //!
-//! As the root crate in the Tock operating system, this crate serves multiple
-//! purposes:
+//! 作为 Tock 操作系统中的root  crate，这个 crate 服务于多个目的：
 //!
-//! 1. It includes the logic for the core kernel, including process management,
-//!    grants, scheduling, etc.
+//! 1. 它包括核心内核的逻辑，包括进程管理、Grant、调度等。
 //!
-//! 2. It includes important interfaces for hardware and other device
-//!    abstractions. These are generally in the HIL and platform folders.
+//! 2. 它包括硬件和其他设备抽象的重要接口。 这些通常位于 HIL 和平台文件夹中
 //!
-//! 3. It includes utility functions used elsewhere in the kernel, generally by
-//!    multiple different crates such that it makes sense to have shared
-//!    implementations in the core kernel crate.
+//! 3. 它包括内核中其他地方使用的实用程序函数，
+//!    通常由多个不同的 crate 使用，因此在核心内核 crate 中共享实现是有意义的。
 //!
-//! Because of these different features of the core kernel, managing visibility
-//! of the various objects and functions is a bit tricky. In general, the kernel
-//! crate only exposes what it absolutely needs to. However, there are three
-//! cases where resources in this crate _must_ be exposed.
+//! 由于核心内核的这些不同特性，管理各种对象和函数的可见性有点棘手。
+//! 通常，内核 crate 只公开它绝对需要的内容。
+//! 但是，在三种情况下，此 crate 中的资源_必须_被公开。
 //!
-//! 1. The shared utility functions and structs must be exposed. These are
-//!    marked `pub` and are used by many other kernel crates.
+//! 1. 必须公开共享的实用程序函数和结构。这些被标记为 pub 并被许多其他内核 crate 使用。
 //!
-//!    Some utility objects and abstractions, however, expose memory unsafe
-//!    behavior. These are marked as `unsafe`, and require an `unsafe` block to
-//!    use them. One example of this is `StaticRef` which is used for accessing
-//!    memory-mapped I/O registers. Since accessing the addresses through just a
-//!    memory address is potentially very unsafe, instantiating a `StaticRef`
-//!    requires an `unsafe` block.
+//!    然而，一些实用程序对象和抽象会暴露内存不安全行为。 这些被标记为“不安全”，
+//!    并且需要一个“不安全”块才能使用它们。 其中一个例子是“StaticRef”，
+//!    它用于访问内存映射的 I/O 寄存器。 由于仅通过内存地址访问地址可能非常不安全，
+//!    因此实例化 `StaticRef` 需要一个 `unsafe` 块。
 //!
-//! 2. The core kernel types generally have to be exposed as other layers of the
-//!    OS need to use them. However, generally only a very small interface is
-//!    exposed, and using that interface cannot compromise the overall system or
-//!    the core kernel. These functions are also marked `pub`. For example, the
-//!    `ProcessBuffer` abstraction must be exposed to capsules to use shared memory
-//!    between a process and the kernel. However, the constructor is not public,
-//!    and the API exposed to capsules is very limited and confined by the Rust
-//!    type system. The constructor and other sensitive interfaces are
-//!    restricted to use only inside the kernel crate and are marked
-//!    `pub(crate)`.
+//! 2. 核心内核类型通常必须pub，因为操作系统的其他层需要使用它们。
+//!    但是，通常只暴露一个很小的接口，使用该接口不会损害整个系统或核心内核。
+//!    这些函数也被标记为“pub”。 例如，“ProcessBuffer”抽象必须暴露给Capsule，
+//!    以使用进程和内核之间的共享内存。 但是，构造函数是不公开的，
+//!    暴露给Capsule的 API 非常有限，并且受到 Rust 类型系统的限制。
+//!    构造函数和其他敏感接口仅限于在内核 crate 内使用，并标记为 pub(crate)。
 //!
-//!    In some cases, more sensitive core kernel interfaces must be exposed. For
-//!    example, the kernel exposes a function for starting the main scheduling
-//!    loop in the kernel. Since board crates must be able to start this loop
-//!    after all initialization is finished, the kernel loop function must be
-//!    exposed and marked `pub`. However, this interface is not generally safe
-//!    to use, since starting the loop a second time would compromise the
-//!    stability of the overall system. It's also not necessarily memory unsafe
-//!    to call the start loop function again, so we do not mark it as `unsafe`.
-//!    Instead, we require that the caller hold a `Capability` to call the
-//!    public but sensitive functions. More information is in `capabilities.rs`.
-//!    This allows the kernel crate to still expose functions as public while
-//!    restricting their use. Another example of this is the `Grant`
-//!    constructor, which must be called outside of the core kernel, but should
-//!    not be called except during the board setup.
+//!    在某些情况下，必须公开更敏感的核心内核接口。 例如，内核公开了一个用于在内核
+//!    中启动主调度循环的函数。 由于board crate必须能够在所有初始化完成后启动此循环，
+//!    因此必须公开内核循环函数并标记为“pub”。 但是，此接口通常使用起来并不安全，
+//!    因为第二次启动循环会损害整个系统的稳定性。 再次调用启动循环函数也不一定是内存不安全的，
+//!    所以我们不将其标记为“不安全”。 相反，我们要求调用者持有一个“Capability”来调用公共但敏感的函数。
+//!    更多信息在 `capabilities.rs` 中。 这允许内核 crate 仍然将函数公开，同时限制它们的使用。
+//!    另一个例子是 `Grant` 构造函数，它必须在核心内核之外调用.但除了在board setup期间不应调用。
 //!
-//! 3. Certain internal core kernel interfaces must also be exposed. These are
-//!    needed for extensions of the core kernel that happen to be implemented in
-//!    crates outside of the kernel crate. For example, additional
-//!    implementations of `Process` may live outside of the kernel crate. To
-//!    successfully implement a new `Process` requires access to certain
-//!    in-core-kernel APIs, and these must be marked `pub` so that outside
-//!    crates can access them.
+//! 3. 某些内部核心内核接口也必须公开.这些对于恰好在内核 crate 之外的 crate 中实现的
+//!    核心内核的扩展是必需的。 例如，“Process”的其他实现可能存在于内核 crate 之外。
+//!    要成功实现一个新的 `Process` 需要访问某些内核内核 API，
+//!    并且这些 API 必须标记为 `pub` 以便外部 crate 可以访问它们。
 //!
-//!    These interfaces are highly sensitive, so again we require the caller
-//!    hold a Capability to call them. This helps restrict their use and makes
-//!    it very clear that calling them requires special permissions.
-//!    Additionally, to differentiate these interfaces, which are for external
-//!    extensions of core kernel functionality, from the other public but
-//!    sensitive interfaces (item 2 above), we append the name `_external` to
-//!    the function name.
+//!    这些接口非常敏感，因此我们再次要求调用者拥有调用它们的Capability。
+//!    这有助于限制它们的使用，并清楚地表明调用它们需要special permission。
+//!    此外，为了将这些用于核心内核功能的外部扩展的接口与其他公共但敏感的接口（上面的第 2 项）
+//!    区分开来，我们将名称 _external 附加到函数名称中。
 //!
-//!    One note is that there are currently very few extensions to the core
-//!    kernel that live outside of the kernel crate. That means we have not
-//!    necessarily created `_extern` functions for all the interfaces needed for
-//!    this use case. It is likely we will have to create new interfaces as new
-//!    use cases are discovered.
+//!    需要注意的是，目前在内核 crate 之外的核心内核扩展很少。
+//!    这意味着我们不必为这个用例所需的所有接口创建 `_extern` 函数。
+//!    随着新用例的发现，我们可能不得不创建新接口。
 
 #![feature(core_intrinsics, const_fn_trait_bound)]
 #![warn(unreachable_pub)]
 #![no_std]
 
-// Define the kernel major and minor versions
+// 定义内核主要和次要版本
 pub const MAJOR: u16 = 2;
 pub const MINOR: u16 = 0;
 
@@ -121,7 +93,7 @@ mod process_standard;
 mod process_utilities;
 mod syscall_driver;
 
-// Core resources exposed as `kernel::Type`.
+// 核心资源公开为 `kernel::Type`。
 pub use crate::errorcode::ErrorCode;
 pub use crate::kernel::Kernel;
 pub use crate::process::ProcessId;
