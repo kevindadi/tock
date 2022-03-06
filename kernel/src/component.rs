@@ -1,38 +1,25 @@
-//! Components extend the functionality of the Tock kernel through a
-//! simple factory method interface.
+//! Component通过一个简单的工厂方法接口扩展了 Tock 内核的功能。
 
-/// A component encapsulates peripheral-specific and capsule-specific
-/// initialization for the Tock OS kernel in a factory method,
-/// which reduces repeated code and simplifies the boot sequence.
+/// 组件将 Tock OS 内核的特定外设和特定Capsule初始化封装在工厂方法中，
+/// 从而减少重复代码并简化启动顺序。
 ///
-/// The `Component` trait encapsulates all of the initialization and
-/// configuration of a kernel extension inside the `finalize()` function
-/// call. The `Output` type defines what type this component generates.
-/// Note that instantiating a component does not necessarily
-/// instantiate the underlying `Output` type; instead, it is typically
-/// instantiated in the `finalize()` method. If instantiating and
-/// initializing the `Output` type requires parameters, these should be
-/// passed in the component's `new()` function.
+/// `Component` trait 将内核扩展的所有初始化和配置封装在 `finalize()` 函数调用中。
+/// `Output` 类型定义了该Component生成的类型。请注意，实例化Component不一定实例化底层的“Output”类型；
+/// 相反，它通常在 `finalize()` 方法中实例化。如果实例化和初始化 `Output` 类型需要参数，
+/// 这些应该在Component的 `new()` 函数中传递。
 pub trait Component {
-    /// An optional type to specify the chip or board specific static memory
-    /// that a component needs to setup the output object(s). This is the memory
-    /// that `static_init!()` would normally setup, but generic components
-    /// cannot setup static buffers for types which are chip-dependent, so those
-    /// buffers have to be passed in manually, and the `StaticInput` type makes
-    /// this possible.
+    /// 一种可选类型，用于指定Component设置输出对象所需的芯片或板特定静态内存。
+    /// 这是 `static_init!()` 通常会设置的内存，但通用组件无法为依赖于芯片的
+    /// 类型设置静态缓冲区，因此必须手动传入这些缓冲区，而 `StaticInput` 类型使这成为可能。
     type StaticInput;
 
-    /// The type (e.g., capsule, peripheral) that this implementation
-    /// of Component produces via `finalize()`. This is typically a
-    /// static reference (`&'static`).
+    /// 这个Component的实现通过`finalize()`生成的类型（例如，Capsule、peripheral）。
+    /// 这通常是一个静态引用（`&'static`）。
     type Output;
 
-    /// A factory method that returns an instance of the Output type of this
-    /// Component implementation. This factory method may only be called once
-    /// per Component instance. Used in the boot sequence to instantiate and
-    /// initialize part of the Tock kernel. Some components need to use the
-    /// `static_memory` argument to allow the board initialization code to pass
-    /// in references to static memory that the component will use to setup the
-    /// Output type object.
+    /// 返回此Component实现的输出类型实例的工厂方法。 每个 Component 实例只能调用此工厂方法一次。
+    /// 在引导序列中用于实例化和初始化 Tock 内核的一部分。
+    /// 一些组件需要使用 `static_memory` 参数来允许板初始化代码传递对静态内存的引用，
+    /// Component将使用该引用来设置输出类型对象。
     unsafe fn finalize(self, static_memory: Self::StaticInput) -> Self::Output;
 }
