@@ -1,4 +1,4 @@
-//! Tock syscall number definitions and arch-agnostic interface trait.
+//! Tock 系统调用号定义和与架构无关的接口特征。
 
 use core::convert::TryFrom;
 use core::fmt::Write;
@@ -8,10 +8,9 @@ use crate::process;
 
 pub use crate::syscall_driver::{CommandReturn, SyscallDriver};
 
-/// Helper function to split a u64 into a higher and lower u32.
+/// 辅助函数将 u64 拆分为更高和更低的 u32。
 ///
-/// Used in encoding 64-bit wide system call return values on 32-bit
-/// platforms.
+/// 用于在32位平台上编码64位宽的系统调用返回值。
 #[inline]
 fn u64_to_be_u32s(src: u64) -> (u32, u32) {
     let src_bytes = src.to_be_bytes();
@@ -21,13 +20,11 @@ fn u64_to_be_u32s(src: u64) -> (u32, u32) {
     (src_msb, src_lsb)
 }
 
-// ---------- SYSTEMCALL ARGUMENT DECODING ----------
+// ---------- 系统调用参数解码 ----------
 
-/// Enumeration of the system call classes based on the identifiers
-/// specified in the Tock ABI.
+/// 根据 Tock ABI 中指定的标识符枚举系统调用类。
 ///
-/// These are encoded as 8 bit values as on some architectures the value can
-/// be encoded in the instruction itself.
+/// 这些被编码为 8 位值，因为在某些架构上，值可以在指令本身中编码。
 #[repr(u8)]
 #[derive(Copy, Clone, Debug)]
 pub enum SyscallClass {
@@ -41,17 +38,14 @@ pub enum SyscallClass {
     UserspaceReadableAllow = 7,
 }
 
-/// Enumeration of the yield system calls based on the Yield identifier
-/// values specified in the Tock ABI.
+/// 根据 Tock ABI 中指定的 Yield 标识符值枚举 yield 系统调用。
 #[derive(Copy, Clone, Debug)]
 pub enum YieldCall {
     NoWait = 0,
     Wait = 1,
 }
 
-// Required as long as no solution to
-// https://github.com/rust-lang/rfcs/issues/2783 is integrated into
-// the standard library
+// 只要没有解决方案 https://github.com/rust-lang/rfcs/issues/2783 被集成到标准库中就需要
 impl TryFrom<u8> for SyscallClass {
     type Error = u8;
 
@@ -70,17 +64,14 @@ impl TryFrom<u8> for SyscallClass {
     }
 }
 
-/// Decoded system calls as defined in TRD 104.
+/// TRD 104 中定义的解码系统调用。
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Syscall {
-    /// Structure representing an invocation of the Yield system call class.
-    /// `which` is the Yield identifier value and `address` is the no wait field.
+    /// 表示Yield 系统调用类的结构。 `which` 是产量标识符值，`address` 是无等待字段。
     Yield { which: usize, address: *mut u8 },
 
-    /// Structure representing an invocation of the Subscribe system call
-    /// class. `driver_number` is the driver identifier, `subdriver_number`
-    /// is the subscribe identifier, `upcall_ptr` is upcall pointer,
-    /// and `appdata` is the application data.
+    /// 表示对Subscribe系统调用类的调用的结构。 `driver_number`是驱动标识符，`subdriver_number`是订阅标识符，
+    /// `upcall_ptr`是upcall指针，`appdata`是应用数据。
     Subscribe {
         driver_number: usize,
         subdriver_number: usize,
@@ -88,9 +79,8 @@ pub enum Syscall {
         appdata: usize,
     },
 
-    /// Structure representing an invocation of the Command system call class.
-    /// `driver_number` is the driver identifier and `subdriver_number` is
-    /// the command identifier.
+    /// 表示Command系统调用类调用的结构。
+    /// `driver_number` 是驱动程序标识符，`subdriver_number` 是命令标识符。
     Command {
         driver_number: usize,
         subdriver_number: usize,
@@ -98,10 +88,8 @@ pub enum Syscall {
         arg1: usize,
     },
 
-    /// Structure representing an invocation of the ReadWriteAllow system call
-    /// class. `driver_number` is the driver identifier, `subdriver_number` is
-    /// the buffer identifier, `allow_address` is the address, and `allow_size`
-    /// is the size.
+    /// 表示调用 ReadWriteAllow 系统调用类的结构。 `driver_number` 是驱动标识符，
+    /// `subdriver_number` 是缓冲区标识符，`allow_address` 是地址，`allow_size` 是大小。
     ReadWriteAllow {
         driver_number: usize,
         subdriver_number: usize,
@@ -109,10 +97,9 @@ pub enum Syscall {
         allow_size: usize,
     },
 
-    /// Structure representing an invocation of the ReadWriteAllow system call
-    /// class, but with shared kernel and app access. `driver_number` is the
-    /// driver identifier, `subdriver_number` is the buffer identifier,
-    // `allow_address` is the address, and `allow_size` is the size.
+    /// 表示调用 ReadWriteAllow 系统调用类的结构，但具有共享内核和应用程序访问权限。 `
+    /// driver_number` 是驱动标识符，`subdriver_number` 是缓冲区标识符，
+    /// `allow_address` 是地址，`allow_size` 是大小。
     UserspaceReadableAllow {
         driver_number: usize,
         subdriver_number: usize,
@@ -120,10 +107,8 @@ pub enum Syscall {
         allow_size: usize,
     },
 
-    /// Structure representing an invocation of the ReadOnlyAllow system call
-    /// class. `driver_number` is the driver identifier, `subdriver_number` is
-    /// the buffer identifier, `allow_address` is the address, and `allow_size`
-    /// is the size.
+    /// 表示 ReadOnlyAllow 系统调用类的结构。 `driver_number` 是驱动标识符，
+    /// `subdriver_number` 是缓冲区标识符，`allow_address` 是地址，`allow_size` 是大小。
     ReadOnlyAllow {
         driver_number: usize,
         subdriver_number: usize,
@@ -131,14 +116,10 @@ pub enum Syscall {
         allow_size: usize,
     },
 
-    /// Structure representing an invocation of the Memop system call
-    /// class. `operand` is the operation and `arg0` is the operation
-    /// argument.
+    /// 表示 Memop 系统调用类的调用的结构。 `operand` 是操作，`arg0` 是操作参数。
     Memop { operand: usize, arg0: usize },
 
-    /// Structure representing an invocation of the Exit system call
-    /// class. `which` is the exit identifier and `completion_code` is
-    /// the completion code passed into the kernel.
+    /// 表示调用 Exit 系统调用类的结构。 `which` 是退出标识符，而 `completion_code` 是传递给内核的完成代码。
     Exit {
         which: usize,
         completion_code: usize,
@@ -146,14 +127,11 @@ pub enum Syscall {
 }
 
 impl Syscall {
-    /// Helper function for converting raw values passed back from an application
-    /// into a `Syscall` type in Tock, representing an typed version of a system
-    /// call invocation. The method returns None if the values do not specify
-    /// a valid system call.
+    /// 用于将从应用程序传回的原始值转换为 Tock 中的 `Syscall` 类型的辅助函数，
+    /// 表示系统调用调用的类型化版本。 如果值没有指定有效的系统调用，该方法返回 None。
     ///
-    /// Different architectures have different ABIs for a process and the kernel
-    /// to exchange data. The 32-bit ABI for CortexM and RISCV microcontrollers is
-    /// specified in TRD104.
+    /// 不同的架构对于进程和内核交换数据有不同的ABI。
+    /// 用于 CortexM 和 RISCV 微控制器的 32 位 ABI 在 TRD104 中指定。
     pub fn from_register_arguments(
         syscall_number: u8,
         r0: usize,
@@ -209,13 +187,11 @@ impl Syscall {
     }
 }
 
-// ---------- SYSCALL RETURN VALUE ENCODING ----------
+// ---------- 系统调用返回值编码 ----------
 
-/// Enumeration of the system call return type variant identifiers described
-/// in TRD104.
+/// TRD104 中描述的系统调用返回类型变体标识符的枚举。
 ///
-/// Each variant is associated with the respective variant identifier
-/// that would be passed along with the return value to userspace.
+/// 每个变体都与相应的变体标识符相关联，该标识符将与返回值一起传递给用户空间。
 #[repr(u32)]
 #[derive(Copy, Clone, Debug)]
 pub enum SyscallReturnVariant {
@@ -231,22 +207,14 @@ pub enum SyscallReturnVariant {
     SuccessU64U32 = 133,
 }
 
-/// Enumeration of the possible system call return variants specified
-/// in TRD104.
+/// TRD104 中指定的可能的系统调用返回变量的枚举。
 ///
-/// This struct operates over primitive types such as integers of
-/// fixed length and pointers. It is constructed by the scheduler and
-/// passed down to the architecture to be encoded into registers,
-/// using the provided
-/// [`encode_syscall_return`](SyscallReturn::encode_syscall_return)
-/// method.
+/// 此结构对原始类型进行操作，例如固定长度的整数和指针。 它由调度程序构建并传递给架构以编码到寄存器中，
+/// 使用提供的 [`encode_syscall_return`](SyscallReturn::encode_syscall_return) 方法。
 ///
-/// Capsules do not use this struct. Capsules use higher level Rust
-/// types
-/// (e.g. [`ReadWriteProcessBuffer`](crate::processbuffer::ReadWriteProcessBuffer)
-/// and `GrantKernelData`) or wrappers around this struct
-/// ([`CommandReturn`](crate::syscall_driver::CommandReturn)) which limit the
-/// available constructors to safely constructable variants.
+/// Capsule不使用这个结构。 Capsules 使用更高级别的 Rust 类型
+/// （例如 [`ReadWriteProcessBuffer`](crate::processbuffer::ReadWriteProcessBuffer) 和 `GrantKernelData`）
+/// 或围绕此结构的包装器（[`CommandReturn`](crate::syscall_driver::CommandReturn)）安全可构造变体的可用构造函数。
 #[derive(Copy, Clone, Debug)]
 pub enum SyscallReturn {
     /// Generic error case
@@ -271,18 +239,11 @@ pub enum SyscallReturn {
     /// data field
     SuccessU64U32(u64, u32),
 
-    // These following types are used by the scheduler so that it can
-    // return values to userspace in an architecture (pointer-width)
-    // independent way. The kernel passes these types (rather than
-    // ProcessBuffer or Upcall) for two reasons. First, since the
-    // kernel/scheduler makes promises about the lifetime and safety
-    // of these types, it does not want to leak them to other
-    // code. Second, if subscribe or allow calls pass invalid values
-    // (pointers out of valid memory), the kernel cannot construct an
-    // ProcessBuffer or Upcall type but needs to be able to return a
-    // failure. -pal 11/24/20
-    /// Read/Write allow success case, returns the previous allowed
-    /// buffer and size to the process.
+    // 调度程序使用以下这些类型，以便它可以以独立于架构（指针宽度）的方式将值返回给用户空间。
+    // 内核传递这些类型（而不是 ProcessBuffer 或 Upcall）有两个原因。 首先，由于内核/调度器对这些类型的生命周期
+    // 和安全性做出了承诺，它不想将它们泄露给其他代码。 其次，如果订阅或允许调用传递无效值（指针超出有效内存），
+    // 内核无法构造ProcessBuffer或Upcall类型但需要能够返回失败。
+    // 读/写允许成功案例，将先前允许的缓冲区和大小返回给进程。
     AllowReadWriteSuccess(*mut u8, usize),
     /// Read/Write allow failure case, returns the passed allowed
     /// buffer and size to the process.
@@ -311,12 +272,10 @@ pub enum SyscallReturn {
 }
 
 impl SyscallReturn {
-    /// Transforms a CommandReturn, which is wrapper around a subset of
-    /// SyscallReturn, into a SyscallReturn.
+    /// 将一个 CommandReturn（它是 SyscallReturn 的一个子集的包装器）转换为一个 SyscallReturn。
     ///
-    /// This allows CommandReturn to include only the variants of SyscallReturn
-    /// that can be returned from a Command, while having an inexpensive way to
-    /// handle it as a SyscallReturn for more generic code paths.
+    /// 这允许 CommandReturn 仅包含可以从 Command 返回的 SyscallReturn 的变体，
+    /// 同时以一种廉价的方式将其作为 SyscallReturn 来处理，以用于更通用的代码路径。
     pub(crate) fn from_command_return(res: CommandReturn) -> Self {
         res.into_inner()
     }
@@ -453,89 +412,62 @@ impl SyscallReturn {
     }
 }
 
-// ---------- USERSPACE KERNEL BOUNDARY ----------
+// ---------- 用户空间内核边界 ----------
 
-/// `ContentSwitchReason` specifies why the process stopped executing and
-/// execution returned to the kernel.
+/// `ContentSwitchReason` 指定进程停止执行和执行返回内核的原因。
 #[derive(PartialEq, Copy, Clone)]
 pub enum ContextSwitchReason {
     /// Process called a syscall. Also returns the syscall and relevant values.
     SyscallFired { syscall: Syscall },
-    /// Process triggered the hardfault handler.
-    /// The implementation should still save registers in the event that the
-    /// `Platform` can handle the fault and allow the app to continue running.
-    /// For more details on this see `Platform::process_fault_hook()`.
+    /// 进程触发了硬故障处理程序。
+    /// 在“平台”可以处理故障并允许应用程序继续运行的情况下，实现仍应保存寄存器。
+    /// 有关这方面的更多详细信息，请参阅 `Platform::process_fault_hook()`。
     Fault,
     /// Process interrupted (e.g. by a hardware event)
     Interrupted,
 }
 
-/// The `UserspaceKernelBoundary` trait is implemented by the
-/// architectural component of the chip implementation of Tock. This
-/// trait allows the kernel to switch to and from processes
-/// in an architecture-independent manner.
+/// `UserspaceKernelBoundary` trait 由 Tock 芯片实现的架构组件实现。
+/// 此特性允许内核以独立于体系结构的方式在进程之间切换。
 ///
-/// Exactly how upcalls and return values are passed between
-/// kernelspace and userspace is architecture specific. The
-/// architecture may use process memory to store state when
-/// switching. Therefore, functions in this trait are passed the
-/// bounds of process-accessible memory so that the architecture
-/// implementation can verify it is reading and writing memory that
-/// the process has valid access to. These bounds are passed through
-/// `accessible_memory_start` and `app_brk` pointers.
+/// 究竟如何在内核空间和用户空间之间传递调用和返回值是特定于架构的。
+/// 该架构可以在切换时使用进程内存来存储状态。 因此，此 trait 中的函数被传递给进程可访问内存的边界，
+/// 以便体系结构实现可以验证它正在读取和写入进程可以有效访问的内存。
+/// 这些边界通过 `accessible_memory_start` 和 `app_brk` 指针传递。
 pub trait UserspaceKernelBoundary {
-    /// Some architecture-specific struct containing per-process state that must
-    /// be kept while the process is not running. For example, for keeping CPU
-    /// registers that aren't stored on the stack.
+    /// 一些特定于体系结构的结构，包含在进程未运行时必须保留的每个进程状态。
+    /// 例如，用于保留未存储在堆栈中的 CPU 寄存器。
     ///
-    /// Implementations should **not** rely on the `Default` constructor (custom
-    /// or derived) for any initialization of a process's stored state. The
-    /// initialization must happen in the `initialize_process()` function.
+    /// 实现不应该**依赖 `Default` 构造函数（自定义或派生）来初始化进程的存储状态。
+    /// 初始化必须在 `initialize_process()` 函数中进行。
     type StoredState: Default;
 
-    /// Called by the kernel during process creation to inform the kernel of the
-    /// minimum amount of process-accessible RAM needed by a new process. This
-    /// allows for architecture-specific process layout decisions, such as stack
-    /// pointer initialization.
+    /// 在进程创建期间由内核调用，以通知内核新进程所需的进程可访问 RAM 的最小数量。
+    /// 这允许特定于体系结构的进程布局决策，例如堆栈指针初始化。
     ///
-    /// This returns the minimum number of bytes of process-accessible memory
-    /// the kernel must allocate to a process so that a successful context
-    /// switch is possible.
+    /// 这将返回内核必须分配给进程的进程可访问内存的最小字节数，以便成功的上下文切换成为可能。
     ///
-    /// Some architectures may not need any allocated memory, and this should
-    /// return 0. In general, implementations should try to pre-allocate the
-    /// minimal amount of process-accessible memory (i.e. return as close to 0
-    /// as possible) to provide the most flexibility to the process. However,
-    /// the return value will be nonzero for architectures where values are
-    /// passed in memory between kernelspace and userspace during syscalls or a
-    /// stack needs to be setup.
+    /// 一些架构可能不需要任何分配的内存，这应该返回 0。
+    /// 一般来说，实现应该尝试预先分配最少数量的进程可访问内存（即返回尽可能接近 0）以提供最多过程的灵活性。
+    /// 但是，对于在系统调用期间在内核空间和用户空间之间的内存中传递值或需要设置堆栈的架构，返回值将是非零的。
     fn initial_process_app_brk_size(&self) -> usize;
 
-    /// Called by the kernel after it has memory allocated to it but before it
-    /// is allowed to begin executing. Allows for architecture-specific process
-    /// setup, e.g. allocating a syscall stack frame.
+    /// 由内核在分配内存后但在允许开始执行之前调用。允许特定于架构的流程设置，例如分配系统调用堆栈帧。
     ///
-    /// This function must also initialize the stored state (if needed).
+    /// 此函数还必须初始化存储的状态（如果需要）。
     ///
-    /// The kernel calls this function with the start of memory allocated to the
-    /// process by providing `accessible_memory_start`. It also provides the
-    /// `app_brk` pointer which marks the end of process-accessible memory. The
-    /// kernel guarantees that `accessible_memory_start` will be word-aligned.
+    /// 内核通过提供 `accessible_memory_start` 以分配给进程的内存开始调用此函数。它还提供了 `app_brk` 指针，
+    /// 它标志着进程可访问内存的结束。内核保证 `accessible_memory_start` 将是字对齐的。
     ///
-    /// If successful, this function returns `Ok()`. If the process syscall
-    /// state cannot be initialized with the available amount of memory, or for
-    /// any other reason, it should return `Err()`.
+    /// 如果成功，此函数返回 `Ok()`。如果进程系统调用状态不能用可用内存量初始化，或者由于任何其他原因，它应该返回 `Err()`。
     ///
-    /// This function may be called multiple times on the same process. For
-    /// example, if a process crashes and is to be restarted, this must be
-    /// called. Or if the process is moved this may need to be called.
+    /// 这个函数可以在同一个进程中被多次调用。例如，如果一个进程崩溃并要重新启动，则必须调用它。
+    /// 或者，如果进程被移动，则可能需要调用它。
     ///
-    /// ### Safety
+    /// ## safety
     ///
-    /// This function guarantees that it if needs to change process memory, it
-    /// will only change memory starting at `accessible_memory_start` and before
-    /// `app_brk`. The caller is responsible for guaranteeing that those
-    /// pointers are valid for the process.
+    /// 该函数保证如果需要更改进程内存，它只会更改从 `accessible_memory_start` 开始和 `app_brk` 之前的内存。
+    /// 调用者负责保证这些指针对进程有效。
     unsafe fn initialize_process(
         &self,
         accessible_memory_start: *const u8,
@@ -543,21 +475,15 @@ pub trait UserspaceKernelBoundary {
         state: &mut Self::StoredState,
     ) -> Result<(), ()>;
 
-    /// Set the return value the process should see when it begins executing
-    /// again after the syscall. This will only be called after a process has
-    /// called a syscall.
+    /// 设置进程在系统调用后再次开始执行时应该看到的返回值。 这只会在进程调用系统调用后调用。
     ///
-    /// The process to set the return value for is specified by the `state`
-    /// value. The `return_value` is the value that should be passed to the
-    /// process so that when it resumes executing it knows the return value of
-    /// the syscall it called.
+    /// 设置返回值的过程由 `state` 值指定。 `return_value` 是应该传递给进程的值，
+    /// 以便当它恢复执行时它知道它调用的系统调用的返回值。
     ///
-    /// ### Safety
+    /// ## safety
     ///
-    /// This function guarantees that it if needs to change process memory, it
-    /// will only change memory starting at `accessible_memory_start` and before
-    /// `app_brk`. The caller is responsible for guaranteeing that those
-    /// pointers are valid for the process.
+    /// 该函数保证如果需要更改进程内存，它只会更改从 `accessible_memory_start` 开始和 `app_brk` 之前的内存。
+    /// 调用者负责保证这些指针对进程有效。
     unsafe fn set_syscall_return_value(
         &self,
         accessible_memory_start: *const u8,
@@ -566,40 +492,30 @@ pub trait UserspaceKernelBoundary {
         return_value: SyscallReturn,
     ) -> Result<(), ()>;
 
-    /// Set the function that the process should execute when it is resumed.
-    /// This has two major uses: 1) sets up the initial function call to
-    /// `_start` when the process is started for the very first time; 2) tells
-    /// the process to execute a upcall function after calling `yield()`.
+    /// 设置进程恢复时应执行的功能。
+    /// 这有两个主要用途：
+    /// 1）在进程第一次启动时设置对`_start`的初始函数调用;
+    /// 2) 告诉进程在调用 `yield()` 后执行upcall函数.
     ///
-    /// **Note:** This method cannot be called in conjunction with
-    /// `set_syscall_return_value`, as the injected function will clobber the
-    /// return value.
+    /// **注意：** 此方法不能与 `set_syscall_return_value` 一起调用，因为注入的函数会破坏返回值。
     ///
     /// ### Arguments
     ///
-    /// - `accessible_memory_start` is the address of the start of the
-    ///   process-accessible memory region for this process.
-    /// - `app_brk` is the address of the current process break. This marks the
-    ///   end of the memory region the process has access to. Note, this is not
-    ///   the end of the entire memory region allocated to the process. Some
-    ///   memory above this address is still allocated for the process, but if
-    ///   the process tries to access it an MPU fault will occur.
-    /// - `state` is the stored state for this process.
-    /// - `upcall` is the function that should be executed when the process
-    ///   resumes.
+    /// - `accessible_memory_start` 是该进程的进程可访问内存区域的起始地址。
+    /// - `app_brk` 是当前进程中断的地址。 这标志着进程可以访问的内存区域的结束。 注意，这并不是分配给进程的整个内存区域的结束。
+    ///   此地址之上的一些内存仍分配给进程，但如果进程试图访问它，则会发生 MPU 故障。
+    /// - `state` 是该进程的存储状态。
+    /// - `upcall` 是进程恢复时应该执行的函数。
     ///
     /// ### Return
     ///
-    /// Returns `Ok(())` if the function was successfully enqueued for the
-    /// process. Returns `Err(())` if the function was not, likely because there
-    /// is insufficient memory available to do so.
+    /// 如果函数已成功加入进程队列，则返回 `Ok(())`。
+    /// 如果函数不是，则返回 `Err(())`，可能是因为没有足够的可用内存来执行此操作。
     ///
     /// ### Safety
     ///
-    /// This function guarantees that it if needs to change process memory, it
-    /// will only change memory starting at `accessible_memory_start` and before
-    /// `app_brk`. The caller is responsible for guaranteeing that those
-    /// pointers are valid for the process.
+    /// 该函数保证如果需要更改进程内存，
+    /// 它只会更改从 `accessible_memory_start` 和 `app_brk` 开始的内存。 调用者负责保证这些指针对进程有效。
     unsafe fn set_process_function(
         &self,
         accessible_memory_start: *const u8,
@@ -608,23 +524,18 @@ pub trait UserspaceKernelBoundary {
         upcall: process::FunctionCall,
     ) -> Result<(), ()>;
 
-    /// Context switch to a specific process.
+    /// 上下文切换到特定进程。
     ///
-    /// This returns two values in a tuple.
+    /// 这将返回一个元组中的两个值。
     ///
-    /// 1. A `ContextSwitchReason` indicating why the process stopped executing
-    ///    and switched back to the kernel.
-    /// 2. Optionally, the current stack pointer used by the process. This is
-    ///    optional because it is only for debugging in process.rs. By sharing
-    ///    the process's stack pointer with process.rs users can inspect the
-    ///    state and see the stack depth, which might be useful for debugging.
+    /// 1. 一个 `ContextSwitchReason` 指示进程停止执行并切换回内核的原因。
+    /// 2. 进程使用的当前堆栈指针。 这是可选的，因为它仅用于在 process.rs 中进行调试。
+    /// 通过与 process.rs 共享进程的堆栈指针，用户可以检查状态并查看堆栈深度，这可能对调试有用。
     ///
     /// ### Safety
     ///
-    /// This function guarantees that it if needs to change process memory, it
-    /// will only change memory starting at `accessible_memory_start` and before
-    /// `app_brk`. The caller is responsible for guaranteeing that those
-    /// pointers are valid for the process.
+    /// 该函数保证如果需要更改进程内存，它只会更改从 `accessible_memory_start` 和 `app_brk` 开始的内存。
+    /// 调用者负责保证这些指针对进程有效。
     unsafe fn switch_to_process(
         &self,
         accessible_memory_start: *const u8,
@@ -632,15 +543,12 @@ pub trait UserspaceKernelBoundary {
         state: &mut Self::StoredState,
     ) -> (ContextSwitchReason, Option<*const u8>);
 
-    /// Display architecture specific (e.g. CPU registers or status flags) data
-    /// for a process identified by the stored state for that process.
+    /// 显示由该进程的存储状态标识的进程的体系结构特定（例如 CPU 寄存器或状态标志）数据。
     ///
     /// ### Safety
     ///
-    /// This function guarantees that it if needs to change process memory, it
-    /// will only change memory starting at `accessible_memory_start` and before
-    /// `app_brk`. The caller is responsible for guaranteeing that those
-    /// pointers are valid for the process.
+    /// 该函数保证如果需要更改进程内存，它只会更改从 `accessible_memory_start` 和 `app_brk` 开始的内存。
+    /// 调用者负责保证这些指针对进程有效。
     unsafe fn print_context(
         &self,
         accessible_memory_start: *const u8,
@@ -649,7 +557,6 @@ pub trait UserspaceKernelBoundary {
         writer: &mut dyn Write,
     );
 
-    /// Store architecture specific (e.g. CPU registers or status flags) data
-    /// for a process. On success returns the number of elements written to out.
+    /// 存储进程的特定架构（例如 CPU 寄存器或状态标志）数据。 成功时返回写入输出的元素数。
     fn store_context(&self, state: &Self::StoredState, out: &mut [u8]) -> Result<usize, ErrorCode>;
 }

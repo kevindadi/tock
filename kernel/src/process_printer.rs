@@ -1,4 +1,4 @@
-//! Tools for displaying process state.
+//! 显示进程状态的工具。
 
 use core::fmt::Write;
 

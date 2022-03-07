@@ -4,38 +4,25 @@
 //!
 //! ## Grant Overview
 //!
-//! Grants allow capsules to dynamically allocate memory from a process to hold
-//! state on the process's behalf.
+//! grant允许capsule动态地从进程分配内存以代表进程保持状态.
 //!
-//! Each capsule that wishes to do this needs to have a `Grant` type. `Grant`s
-//! are created at boot, and each have a unique ID and a type `T`. This type
-//! only allows the capsule to allocate memory from a process in the future. It
-//! does not initially represent any allocated memory.
+//! 每个希望这样做的capsule都需要有一个“Grant”类型。 `Grant`s 是在启动时创建的，
+//! 每个都有唯一的 ID 和类型 `T`。 这种类型只允许capsule从未来的进程中分配内存。
+//! 它最初并不代表任何分配的内存。
 //!
-//! When a capsule does wish to use its `Grant` to allocate memory from a
-//! process, it must "enter" the `Grant` with a specific `ProcessId`. Entering a
-//! `Grant` for a specific process instructs the core kernel to create an object
-//! `T` in the process's memory space and provide the capsule with access to it.
-//! If the `Grant` has not previously been entered for that process, the memory
-//! for object `T` will be allocated from the "grant region" within the
-//! kernel-accessible portion of the process's memory.
+//! 当一个capsule希望使用它的`Grant`来从一个进程分配内存时，它必须“Input”具有特定`ProcessId`的`Grant`.
+//! 为特定进程输入“Grant”会指示核心内核在进程的内存空间中创建一个对象“T”，并为capsule提供对其的访问权限。
+//! 如果之前没有为该进程输入“Grant”，则对象“T”的内存将从进程内存的内核可访问部分内的“Grant区域”分配。
 //!
-//! If a `Grant` has never been entered for a process, the object `T` will _not_
-//! be allocated in that process's grant region, even if the `Grant` has been
-//! entered for other processes.
+//! 如果从未为进程输入“Grant”，则对象“T”将_不_被分配到该进程的Grant区域，即使已为其他进程输入了“Grant”。
 //!
-//! Upcalls and allowed buffer references are stored in the dynamically
-//! allocated grant for a particular Driver as well. Upcalls and allowed buffer
-//! references are stored outside of the `T` object to enable the kernel to
-//! manage them and ensure swapping guarantees are met.
+//! Upcall和允许的缓冲区引用也存储在为特定驱动程序动态分配的grant中。
+//! upcall和允许的缓冲区引用存储在 `T` 对象之外，以使内核能够管理它们并确保满足交换保证。
 //!
-//! The type `T` of a `Grant` is fixed in size and the number of upcalls and
-//! allowed buffers associated with a grant is fixed. That is, when a `Grant` is
-//! entered for a process the resulting allocated object will be the size of
-//! `SizeOf<T>` plus the size for the structure to hold upcalls and allowed
-//! buffer references. If capsules need additional process-specific memory for
-//! their operation, they can use an `Allocator` to request additional memory
-//! from the process's grant region.
+//! `Grant` 的类型 `T` 的大小是固定的，并且与grant关联的upcall和允许的缓冲区的数量是固定的。
+//! 也就是说，当为一个进程输入“Grant”时，所分配的对象的大小将是“SizeOf<T>”加上结构的大小，
+//! 以保持upcall和允许的缓冲区引用。如果capsule需要额外的特定于进程的内存来进行操作，
+//! 他们可以使用“分配器”从进程的grant区域请求额外的内存。
 //!
 //! ```text,ignore
 //!                            ┌──────────────────┐
@@ -87,8 +74,7 @@
 //!
 //! ## Grant Mechanisms and Types
 //!
-//! Here is an overview of the types used by grant.rs to implement the Grant
-//! functionality in Tock:
+//! 以下是 grant.rs 用于在 Tock 中实现 Grant 功能的类型的概述：
 //!
 //! ```text,ignore
 //!                         ┌──────────────────────────┐
@@ -138,19 +124,19 @@ use crate::processbuffer::{ReadOnlyProcessBufferRef, ReadWriteProcessBufferRef};
 use crate::upcall::{Upcall, UpcallError, UpcallId};
 use crate::ErrorCode;
 
-/// Tracks how many upcalls a grant instance supports automatically.
+/// 跟踪Grant实例自动支持多少次调用.
 pub trait UpcallSize {
-    /// The number of upcalls the grant supports.
+    /// Grant支持的upcall次数.
     const COUNT: usize;
 }
 
-/// Specifies how many upcalls a grant instance supports automatically.
+/// 指定grant实例自动支持多少次upcall.
 pub struct UpcallCount<const NUM: usize>;
 impl<const NUM: usize> UpcallSize for UpcallCount<NUM> {
     const COUNT: usize = NUM;
 }
 
-/// Tracks how many read-only allows a grant instance supports automatically.
+/// 跟踪grant实例自动支持的read-only数量.
 pub trait AllowRoSize {
     /// The number of read-only allows the grant supports.
     const COUNT: usize;
@@ -175,10 +161,9 @@ impl<const NUM: usize> AllowRwSize for AllowRwCount<NUM> {
     const COUNT: usize = NUM;
 }
 
-/// Helper that calculated offsets within the kernel owned memory (i.e. the
-/// non-T part of grant).
+/// 在内核拥有的内存中计算偏移量的方法（即Grant的非 T 部分）.
 ///
-/// Example layout of full grant belonging to a single app and driver:
+/// 属于单个应用程序和驱动程序的完全grant的示例布局:
 ///
 /// ```text,ignore
 /// 0x003FFC8  ┌────────────────────────────────────┐
@@ -217,12 +202,10 @@ struct KernelManagedLayout {
     allow_rw_array: *mut SavedAllowRw,
 }
 
-/// Represents the number of the upcall elements in the kernel owned section of
-/// the grant.
+/// 表示grant的内核拥有部分中的 upcall的数量.
 #[derive(Copy, Clone)]
 struct UpcallItems(usize);
-/// Represents the number of the read-only allow elements in the kernel owned
-/// section of the grant.
+/// 表示grant的内核拥有部分中的read-only的数量.
 #[derive(Copy, Clone)]
 struct AllowRoItems(usize);
 /// Represents the number of the read-write allow elements in the kernel owned
@@ -237,13 +220,11 @@ struct GrantDataSize(usize);
 struct GrantDataAlign(usize);
 
 impl KernelManagedLayout {
-    /// Reads the specified pointer as the base of the kernel owned grant
-    /// region.
+    /// 读取指定的指针作为内核拥有的grant区域的基础.
     ///
     /// # Safety
     ///
-    /// The incoming base pointer must be well aligned and already contain
-    /// initialized data in the expected form.
+    /// 传入的基指针必须对齐良好并且已经包含预期形式的初始化数据.
     unsafe fn read_from_base(base_ptr: *mut u8) -> Self {
         let upcalls_num = base_ptr as *mut usize;
         let upcalls_array = upcalls_num.add(1) as *mut SavedUpcall;
@@ -264,12 +245,11 @@ impl KernelManagedLayout {
         }
     }
 
-    /// Creates a layout from the specified pointer and lengths of arrays.
+    /// 从指定的指针和数组长度创建布局.
     ///
     /// # Safety
     ///
-    /// The incoming base pointer must be well aligned but does not need to
-    /// point to initialized data.
+    /// 传入的基指针必须对齐但不需要指向已初始化的数据.
     unsafe fn from_counts(
         base_ptr: *mut u8,
         upcalls_num_val: UpcallItems,
@@ -294,9 +274,8 @@ impl KernelManagedLayout {
         }
     }
 
-    /// Returns the entire grant size including the kernel own memory, padding,
-    /// and data for T. Requires that grant_t_align be a power of 2, which is
-    /// guaranteed from align_of rust calls.
+    /// 返回整个Grant大小，包括内核自己的内存、填充和 T 的数据。要求 grant_t_align 是 2 的幂，
+    /// 这是由 align_of rust 调用保证的.
     fn grant_size(
         upcalls_num: UpcallItems,
         allow_ro_num: AllowRoItems,
@@ -308,65 +287,50 @@ impl KernelManagedLayout {
             + upcalls_num.0 * size_of::<SavedUpcall>()
             + allow_ro_num.0 * size_of::<SavedAllowRo>()
             + allow_rw_num.0 * size_of::<SavedAllowRw>();
-        // We know that grant_t_align is a power of 2, so we can make a mask
-        // that will save only the remainder bits.
+        // 我们知道 grant_t_align 是 2 的幂，所以我们可以制作一个只保存剩余位的掩码.
         let grant_t_align_mask = grant_t_align.0 - 1;
-        // Determine padding to get to the next multipe of grant_t_align by
-        // taking the remainder and subtracting that from the alignment, then
-        // ensuring a full alignment value maps to 0.
+        // 通过取余数并从对齐中减去余数来确定填充以达到 grant_t_align 的下一个倍数,然后确保完整对齐值映射到 0.
         let padding =
             (grant_t_align.0 - (kernel_managed_size & grant_t_align_mask)) & grant_t_align_mask;
         kernel_managed_size + padding + grant_t_size.0
     }
 
-    /// Returns the alignment of the entire grant region based on the alignment
-    /// of data T.
+    /// 根据数据 T 的对齐方式返回整个grant区域的对齐方式.
     fn grant_align(grant_t_align: GrantDataAlign) -> usize {
-        // The kernel owned memory all aligned to usize. We need to use the
-        // higher of the two alignment to ensure our padding calculations work
-        // for any alignment of T.
+        // 内核拥有的内存全部对齐使用.我们需要使用两个对齐中的较高者,以确保我们的填充计算适用于T的任何对齐.
         cmp::max(align_of::<usize>(), grant_t_align.0)
     }
 
-    /// Returns the offset for the grant data t within the entire grant region.
+    /// 返回整个grant区域内grant数据 t 的偏移量.
     ///
     /// # Safety
     ///
-    /// The caller must ensure that the specified base pointer is aligned to at
-    /// least the alignment of T and points to a grant that is of size
-    /// grant_size bytes.
+    /// 调用者必须确保指定的基指针至少与 T 的对齐对齐，并指向大小为 grant_size 字节的grant.
     unsafe fn offset_of_grant_data_t(
         base_ptr: *mut u8,
         grant_size: usize,
         grant_t_size: GrantDataSize,
     ) -> NonNull<u8> {
-        // The location of the grant data T is the last element in the entire
-        // grant region. Caller must verify that memory is accessible and well
-        // aligned to T.
+        // grant数据 T 的位置是整个grant区域中的最后一个元素.调用者必须验证内存是否可访问且与 T 对齐.
         NonNull::new_unchecked(base_ptr.add(grant_size - grant_t_size.0))
     }
 }
 
-/// This GrantData object provides access to the memory allocated for a grant
-/// for a specific process.
+/// 此 GrantData对象提供对为`特定进程的grant分配的内存`的访问权限.
 ///
-/// The GrantData type is templated on T, the actual type of the object in the
-/// grant. GrantData holds a mutable reference to the type, allowing users
-/// access to the object in process memory.
+/// GrantData 类型以 T 为模板，T 是grant中对象的实际类型。
+/// GrantData 持有对该类型的可变引用，允许用户访问进程内存中的对象.
 ///
-/// Capsules gain access to a GrantData object by calling `Grant::enter()`.
+/// capsule通过调用 `Grant::enter()` 获得对 GrantData 对象的访问权限.
 pub struct GrantData<'a, T: 'a + ?Sized> {
-    /// The mutable reference to the actual object type stored in the grant.
+    /// 对存储在grant中的实际对象类型的可变引用.
     data: &'a mut T,
 }
 
 impl<'a, T: 'a + ?Sized> GrantData<'a, T> {
-    /// Create a `GrantData` object to provide access to the actual object
-    /// allocated for a process.
+    /// 创建一个“Grant Data”对象以提供对分配给进程的实际对象的访问权限.
     ///
-    /// Only one can GrantData per underlying object can be created at a time.
-    /// Otherwise, there would be multiple mutable references to the same object
-    /// which is undefined behavior.
+    /// 每个底层对象一次只能创建一个 GrantData.否则将有对同一对象的多个可变引用，这是未定义的行为.
     fn new(data: &'a mut T) -> GrantData<'a, T> {
         GrantData { data: data }
     }
@@ -385,32 +349,26 @@ impl<'a, T: 'a + ?Sized> DerefMut for GrantData<'a, T> {
     }
 }
 
-/// This GrantKernelData object provides a handle to access upcalls and process
-/// buffers stored on behalf of a particular grant/driver.
+/// 此 GrantKernelData对象提供了一个句柄来访问代表特定grant/驱driver存储的upcall和process缓冲区。
 ///
-/// Capsules gain access to a GrantKernelData object by calling
-/// `Grant::enter()`. From there, they can schedule upcalls or access process
-/// buffers.
+/// capsule通过调用 `Grant::enter()` 获得对 GrantKernelData 对象的访问权限。
+/// 从那里，他们可以调度upcall或access process缓冲区。
 ///
-/// It is expected that this type will only exist as a short-lived stack
-/// allocation, so its size is not a significant concern.
+/// 预计这种类型只会作为短暂的堆栈分配存在，因此它的大小不是一个重要的问题。
 pub struct GrantKernelData<'a> {
-    /// A reference to the actual upcall slice stored in the grant.
+    /// 对存储在grant中的upcall切片的引用.
     upcalls: &'a [SavedUpcall],
 
-    /// A reference to the actual read only allow slice stored in the grant.
+    /// 对存储在grant中的read only切片的引用.
     allow_ro: &'a [SavedAllowRo],
 
-    /// A reference to the actual read write allow slice stored in the grant.
+    /// 对存储在grant中的read write切片的引用.
     allow_rw: &'a [SavedAllowRw],
 
-    /// We need to keep track of the driver number so we can properly identify
-    /// the Upcall that is called. We need to keep track of its source so we can
-    /// remove it if the Upcall is unsubscribed.
+    /// 我们需要跟踪驱动程序编号,以便正确识别调用的Upcall.我们需要跟踪其来源,以便在取消订阅Upcall时将其删除.
     driver_num: usize,
 
-    /// A reference to the process that these upcalls are for. This is used for
-    /// actually scheduling the upcalls.
+    /// 对这些调用所针对的process的引用.这用于调度 upcalls.
     process: &'a dyn Process,
 }
 
@@ -433,13 +391,10 @@ impl<'a> GrantKernelData<'a> {
         }
     }
 
-    /// Schedule the specified upcall for the process with r0, r1, r2 as
-    /// provided values.
+    /// 使用 r0、r1、r2 作为提供的值安排进程的指定upcall.
     ///
-    /// Capsules call this function to schedule upcalls, and upcalls are
-    /// identified by the `subscribe_num`, which must match the subscribe number
-    /// used when the upcall was originally subscribed by a process.
-    /// `subscribe_num`s are indexed starting at zero.
+    /// Capsules 调用此函数来调度 upcall,并且 upcall 由 `subscribe_num` 标识,
+    /// 它必须与进程最初订阅 upcall 时使用的`subscribe_num`匹配。 `subscribe_num`s 从零开始索引.
     pub fn schedule_upcall(
         &self,
         subscribe_num: usize,
@@ -537,9 +492,7 @@ impl<'a> GrantKernelData<'a> {
     }
 }
 
-/// A minimal representation of an upcall, used for storing an upcall in a
-/// process' grant table without wasting memory duplicating information such as
-/// process ID.
+/// upcall 的最小表示,用于将 upcall 存储在进程的grant表中,而不会浪费内存复制进程 ID等信息.
 #[repr(C)]
 #[derive(Default)]
 struct SavedUpcall {
@@ -583,24 +536,20 @@ impl Default for SavedAllowRw {
     }
 }
 
-/// Write the default value of T to every element of the array.
+/// 将 T 的默认值写入数组的每个元素。
 ///
 /// # Safety
 ///
-/// The pointer must be well aligned and point to allocated memory that is
-/// writable for `size_of::<T> * num` bytes. No Rust references may exist to
-/// memory in the address range spanned by `base..base+num` at the time this
-/// function is called. The memory does not need to be initialized yet. If it
-/// already does contain initialized memory, then those contents will be
-/// overwritten without being `Drop`ed first.
+/// 指针必须对齐并指向分配的可写入 `size_of::<T> * num` 字节的内存。
+/// 在调用此函数时，在 `base..base+num` 跨越的地址范围内可能不存在对内存的 Rust 引用。
+/// 内存还不需要初始化。 如果它已经包含初始化内存，那么这些内容将被覆盖而不会先被“Drop”.
 unsafe fn write_default_array<T: Default>(base: *mut T, num: usize) {
     for i in 0..num {
         base.add(i).write(T::default());
     }
 }
 
-/// Lifetime of guard represents the lifetime a grant is held "open". On Drop,
-/// we leave grant.
+/// Guard的生命周期表示grant“open”的生命周期
 ///
 /// This protects against calling `grant.enter()` without calling the
 /// corresponding `grant.leave()`, perhaps due to accidentally using the `?`

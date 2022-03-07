@@ -1,4 +1,4 @@
-//! Data structure for storing an upcall from the kernel to a process.
+//! 用于存储从内核到进程的Upcall的数据结构.
 
 use core::ptr::NonNull;
 
@@ -11,58 +11,46 @@ use crate::ErrorCode;
 
 /// Type to uniquely identify an upcall subscription across all drivers.
 ///
-/// This contains the driver number and the subscribe number within the driver.
+/// 这包含驱动程序中的驱动程序编号和订阅编号。
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub struct UpcallId {
     pub driver_num: usize,
     pub subscribe_num: usize,
 }
 
-/// Errors which can occur when scheduling a process Upcall.
+/// 调度进程 Upcall 时可能发生的错误。
 ///
-/// Scheduling a null-Upcall (which will not be delivered to a process) is
-/// deliberately not an error, given that a null-Upcall is a well-defined Upcall
-/// to be set by a process. It behaves essentially the same as if the process
-/// would set a proper Upcall, and would ignore all invocations, with the
-/// benefit that no task is inserted in the process' task queue.
+/// 考虑到 null upcall 是由进程设置的明确定义的 upcall，计划 null upcall（不会传递给进程）故意不是错误。
+/// 它的行为本质上与进程设置适当的 Upcall 相同，并且会忽略所有调用，其好处是没有任务插入到进程的任务队列中。
 #[derive(Copy, Clone, Debug)]
 pub enum UpcallError {
-    /// The passed `subscribe_num` exceeds the number of Upcalls
-    /// available for this process.
+    /// 传递的 `subscribe_num` 超出了此进程可用的调用次数。
     ///
-    /// For a [`Grant`](crate::grant::Grant) with `n` upcalls,
-    /// this error is returned when
-    /// `GrantKernelData::schedule_upcall` is invoked with
-    /// `subscribe_num >= n`.
-    ///
-    /// No Upcall has been scheduled, the call to
-    /// `GrantKernelData::schedule_upcall` had no observable effects.
+    /// 对于带有 `n` 向上调用的 [`Grant`](crate::grant::Grant)，
+    /// 当使用 `subscribe_num >= n` 调用 `GrantKernelData::schedule_upcall` 时会返回此错误。
+    //
+    /// 没有安排 Upcall，对 `GrantKernelData::schedule_upcall` 的调用没有可观察到的效果。
     ///
     InvalidSubscribeNum,
-    /// The process' task queue is full.
+    /// 进程的任务队列已满。
     ///
-    /// This error can occur when too many tasks (for example,
-    /// Upcalls) have been scheduled for a process, without that
-    /// process yielding or having a chance to resume execution.
+    /// 当为一个进程安排了太多任务（例如，Upcalls），而该进程没有让步或有机会恢复执行时，可能会发生此错误。
     ///
-    /// No Upcall has been scheduled, the call to
-    /// `GrantKernelData::schedule_upcall` had no observable effects.
+    /// 没有安排 Upcall，对 `GrantKernelData::schedule_upcall` 的调用没有可观察到的效果。
     QueueFull,
-    /// A kernel-internal invariant has been violated.
+    /// 违反了内核内部的不变量。
     ///
-    /// This error should never happen. It can be returned if the
-    /// process is inactive (which should be caught by
-    /// [`Grant::enter`](crate::grant::Grant::enter)) or
-    /// `process.tasks` was taken.
+    /// 这个错误永远不会发生。
+    /// 如果进程处于非活动状态（应该被 [`Grant::enter`](crate::grant::Grant::enter) 捕获）
+    /// 或 `process.tasks` 被占用，则可以返回它。
     ///
-    /// These cases cannot be reasonably handled.
+    /// 这些情况无法合理处理。
     KernelError,
 }
 
-/// Type for calling an upcall in a process.
+/// 用于在进程中调用 upcall 的类型。
 ///
-/// This is essentially a wrapper around a function pointer with
-/// associated process data.
+/// 这本质上是一个函数指针的包装器，带有相关的Process数据。
 pub(crate) struct Upcall {
     /// The ProcessId of the process this upcall is for.
     pub(crate) process_id: ProcessId,
@@ -74,12 +62,10 @@ pub(crate) struct Upcall {
     /// The application data passed by the app when `subscribe()` was called
     pub(crate) appdata: usize,
 
-    /// A pointer to the first instruction of a function in the app
-    /// associated with app_id.
+    /// 指向与 app_id 关联的应用程序中函数的第一条指令的指针。
     ///
-    /// If this value is `None`, this is a null upcall, which cannot actually be
-    /// scheduled. An `Upcall` can be null when it is first created, or after an
-    /// app unsubscribes from an upcall.
+    /// 如果这个值为`None`，这是一个null upcall，实际上不能被调度。
+    /// `Upcall` 可以在首次创建时为 null，或者在应用取消订阅 upcall 之后。
     pub(crate) fn_ptr: Option<NonNull<()>>,
 }
 
@@ -100,19 +86,13 @@ impl Upcall {
 
     /// Schedule the upcall.
     ///
-    /// This will queue the [`Upcall`] for the given process. It
-    /// returns `false` if the queue for the process is full and the
-    /// upcall could not be scheduled or this is a null upcall.
+    /// 这会将给定进程的 [`Upcall`] 排队。 如果进程的队列已满并且无法安排upcall，或者这是一个空upcall，则返回“false”。
     ///
-    /// The arguments (`r0-r2`) are the values passed back to the process and
-    /// are specific to the individual `Driver` interfaces.
+    /// 参数（`r0-r2`）是传回进程的值，特定于各个`Driver`接口。
     ///
-    /// This function also takes `process` as a parameter (even though we have
-    /// process_id in our struct) to avoid a search through the processes array
-    /// to schedule the upcall. Currently, it is convenient to pass this
-    /// parameter so we take advantage of it. If in the future that is not the
-    /// case we could have `process` be an Option and just do the search with
-    /// the stored process_id.
+    /// 这个函数也将 `process` 作为一个参数（即使我们的结构中有 process_id）以避免搜索 processes 数组来安排 upcall。
+    /// 目前，传递这个参数很方便，所以我们利用它。
+    /// 如果将来不是这种情况，我们可以选择 `process` 并使用存储的 process_id 进行搜索。
     pub(crate) fn schedule(
         &mut self,
         process: &dyn process::Process,
@@ -174,14 +154,11 @@ impl Upcall {
         res
     }
 
-    /// Create a successful syscall return type suitable for returning to
-    /// userspace.
+    /// 创建适合返回用户空间的成功系统调用返回类型。
     ///
-    /// This function is intended to be called on the "old upcall" that is being
-    /// returned to userspace after a successful subscribe call and upcall swap.
+    /// 此函数旨在在成功订阅调用和upcall交换后返回到用户空间的“old call”。
     ///
-    /// We provide this `.into` function because the return type needs to
-    /// include the function pointer of the upcall.
+    /// 我们提供这个`.into`函数是因为返回类型需要包含upcall的函数指针。
     pub(crate) fn into_subscribe_success(self) -> SyscallReturn {
         match self.fn_ptr {
             Some(fp) => SyscallReturn::SubscribeSuccess(fp.as_ptr(), self.appdata),
@@ -189,15 +166,11 @@ impl Upcall {
         }
     }
 
-    /// Create a failure case syscall return type suitable for returning to
-    /// userspace.
+    /// 创建一个适合返回用户空间的失败案例系统调用返回类型。
     ///
-    /// This is intended to be used when a subscribe call cannot be handled and
-    /// the function pointer passed from userspace must be returned back to
-    /// userspace.
+    /// 这适用于无法处理订阅调用并且从用户空间传递的函数指针必须返回用户空间的情况。
     ///
-    /// We provide this `.into` function because the return type needs to
-    /// include the function pointer of the upcall.
+    /// 我们提供这个`.into`函数是因为返回类型需要包含upcall的函数指针。
     pub(crate) fn into_subscribe_failure(self, err: ErrorCode) -> SyscallReturn {
         match self.fn_ptr {
             Some(fp) => SyscallReturn::SubscribeFailure(err, fp.as_ptr(), self.appdata),

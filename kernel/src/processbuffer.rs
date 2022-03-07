@@ -1,24 +1,17 @@
-//! Data structures for passing application memory to the kernel.
+//! 用于将应用程序内存传递给内核的数据结构。
 //!
-//! A Tock process can pass read-write or read-only buffers into the
-//! kernel for it to use. The kernel checks that read-write buffers
-//! exist within a process's RAM address space, and that read-only
-//! buffers exist either within its RAM or flash address space. These
-//! buffers are shared with the allow_read_write() and
-//! allow_read_only() system calls.
+//! Tock 进程可以将读写或只读缓冲区传递到内核以供其使用。内核检查读写缓冲区是否存在于
+//! 进程的 RAM 地址空间中，以及只读缓冲区是否存在于其 RAM 或闪存地址空间中。
+//! 这些缓冲区与 allow_read_write() 和 allow_read_only() 系统调用共享。
 //!
-//! A read-write and read-only call is mapped to the high-level Rust
-//! types [`ReadWriteProcessBuffer`] and [`ReadOnlyProcessBuffer`]
-//! respectively. The memory regions can be accessed through the
-//! [`ReadableProcessBuffer`] and [`WriteableProcessBuffer`] traits,
-//! implemented on the process buffer structs.
+//! 读写和只读调用分别映射到高级 Rust 类型 [`ReadWriteProcessBuffer`] 和
+//! [`ReadOnlyProcessBuffer`]。 可以通过在进程缓冲区结构上实现的 [`ReadableProcessBuffer`]
+//! 和 [`WriteableProcessBuffer`] Trait访问内存区域。
 //!
-//! Each access to the buffer structs requires a liveness check to ensure that
-//! the process memory is still valid. For a more traditional interface, users
-//! can convert buffers into [`ReadableProcessSlice`] or
-//! [`WriteableProcessSlice`] and use these for the lifetime of their
-//! operations. Users cannot hold live-lived references to these slices,
-//! however.
+//! 对缓冲区结构的每次访问都需要进行liveness检查，以确保进程内存仍然有效。
+//! 对于更传统的界面，用户可以将缓冲区转换为 [`ReadableProcessSlice`] 或
+//! [`WriteableProcessSlice`] 并在其操作的lifetime中使用它们。
+//! 但是，用户不能保存对这些slices的live-lived reference。
 
 use core::cell::Cell;
 use core::marker::PhantomData;
@@ -28,48 +21,32 @@ use crate::capabilities;
 use crate::process::{self, ProcessId};
 use crate::ErrorCode;
 
-/// Convert a process buffer's internal representation to a
-/// ReadableProcessSlice.
+/// 将进程缓冲区的内部表示转换为 ReadableProcessSlice。
 ///
-/// This function will automatically convert zero-length process
-/// buffers into valid zero-sized Rust slices regardless of the value
-/// of `ptr`.
+/// 无论 `ptr` 的值如何，此函数都会自动将零长度的进程缓冲区转换为有效的零大小的 Rust 切片。
 ///
 /// # Safety requirements
 ///
-/// In the case of `len != 0`, the memory `[ptr; ptr + len)` must be
-/// within a single process' address space, and `ptr` must be
-/// nonzero. This memory region must be mapped as _readable_, and
-/// optionally _writable_ and _executable_. It must be allocated
-/// within a single process' address space for the entire lifetime
-/// `'a`.
+/// 在`len != 0`的情况下，内存`[ptr; ptr + len)` 必须在单个进程的地址空间内，并且 `ptr` 必须非零。
+/// 该内存区域必须映射为_可读_，并且可选地映射为_可写_和_可执行_。
+/// 它必须在整个生命周期“a”内分配在单个进程的地址空间中。
 ///
-/// It is sound for multiple overlapping [`ReadableProcessSlice`]s or
-/// [`WriteableProcessSlice`]s to be in scope at the same time.
+/// 多个重叠的 [`ReadableProcessSlice`] 或 [`WriteableProcessSlice`] 同时在范围内是合理的. 引用规范
 unsafe fn raw_processbuf_to_roprocessslice<'a>(
     ptr: *const u8,
     len: usize,
 ) -> &'a ReadableProcessSlice {
-    // Transmute a reference to a slice of Cell<u8>s into a reference
-    // to a ReadableProcessSlice. This is possible as
-    // ReadableProcessSlice is a #[repr(transparent)] wrapper around a
-    // [ReadableProcessByte], which is a #[repr(transparent)] wrapper
-    // around a [Cell<u8>], which is a #[repr(transparent)] wrapper
-    // around an [UnsafeCell<u8>], which finally #[repr(transparent)]
-    // wraps a [u8]
+    // 将对 Cell<u8> 切片的引用转换为对 ReadableProcessSlice 的引用。 因为 ReadableProcessSlice
+    // 是围绕 [ReadableProcessByte] 的 #[repr(transparent)] 包装器，它是围绕 [Cell<u8>] 的
+    // #[repr(transparent)] 包装器，它是 #[repr(transparent) ] 包裹 [UnsafeCell<u8>]，
+    // 最后 #[repr(transparent)] 包裹 [u8]
     core::mem::transmute::<&[u8], &ReadableProcessSlice>(
-        // Rust has very strict requirements on pointer validity[1]
-        // which also in part apply to accesses of length 0. We allow
-        // an application to supply arbitrary pointers if the buffer
-        // length is 0, but this is not allowed for Rust slices. For
-        // instance, a null pointer is _never_ valid, not even for
-        // accesses of size zero.
+        // Rust 对指针有效性[1] 有非常严格的要求，这也部分适用于长度为 0 的访问。如果缓冲区长度为 0，
+        // 我们允许应用程序提供任意指针，但 Rust 切片不允许这样做。
+        // 例如，空指针_从不_有效，即使对于大小为零的访问也是如此。
         //
-        // To get a pointer which does not point to valid (allocated)
-        // memory, but is safe to construct for accesses of size zero,
-        // we must call NonNull::dangling(). The resulting pointer is
-        // guaranteed to be well-aligned and uphold the guarantees
-        // required for accesses of size zero.
+        // 要获得一个不指向有效（已分配）内存的指针，但对于大小为零的访问是安全的，我们必须调用 NonNull::dangling()。
+        // 生成的指针保证对齐良好，并支持大小为零的访问所需的保证。
         //
         // [1]: https://doc.rust-lang.org/core/ptr/index.html#safety
         match len {
@@ -139,96 +116,70 @@ unsafe fn raw_processbuf_to_rwprocessslice<'a>(
     )
 }
 
-/// A readable region of userspace process memory.
+/// 用户空间进程内存的可读区域。
 ///
-/// This trait can be used to gain read-only access to memory regions
-/// wrapped in either a [`ReadOnlyProcessBuffer`] or a
-/// [`ReadWriteProcessBuffer`] type.
+/// 此 trait 可用于获得对封装在 [`ReadOnlyProcessBuffer`] 或 [`ReadWriteProcessBuffer`] 类型中的内存区域的只读访问权限。
 pub trait ReadableProcessBuffer {
-    /// Length of the memory region.
+    /// 内存区域的长度。
     ///
-    /// If the process is no longer alive and the memory has been
-    /// reclaimed, this method must return 0.
+    /// 如果进程不再存活并且内存已经被回收，这个方法必须返回0。
     ///
-    /// # Default Process Buffer
+    /// # 默认进程缓冲区
     ///
-    /// A default instance of a process buffer must return 0.
+    /// 进程缓冲区的默认实例必须返回 0。
     fn len(&self) -> usize;
 
-    /// Pointer to the first byte of the userspace memory region.
+    /// 指向用户空间内存区域的第一个字节的指针。
     ///
-    /// If the length of the initially shared memory region
-    /// (irrespective of the return value of
-    /// [`len`](ReadableProcessBuffer::len)) is 0, this function returns
-    /// a pointer to address `0x0`. This is because processes may
-    /// allow buffers with length 0 to share no memory with the
-    /// kernel. Because these buffers have zero length, they may have
-    /// any pointer value. However, these _dummy addresses_ should not
-    /// be leaked, so this method returns 0 for zero-length slices.
+    /// 如果初始共享内存区域的长度（与 [`len`](ReadableProcessBuffer::len) 的返回值无关）为 0，
+    /// 则此函数返回指向地址 `0x0` 的指针。 这是因为进程可能允许长度为 0 的缓冲区不与内核共享内存。
+    /// 因为这些缓冲区的长度为零，所以它们可以有任何指针值。 但是，这些 _dummy 地址_ 不应该被泄露，
+    /// 因此对于零长度切片，此方法返回 0。
     ///
-    /// # Default Process Buffer
+    /// # 默认进程缓冲区
     ///
-    /// A default instance of a process buffer must return a pointer
-    /// to address `0x0`.
+    /// 进程缓冲区的默认实例必须返回指向地址 `0x0` 的指针。
     fn ptr(&self) -> *const u8;
 
-    /// Applies a function to the (read only) process slice reference
-    /// pointed to by the process buffer.
+    /// 将函数应用于进程缓冲区指向的（只读）进程切片引用。
     ///
-    /// If the process is no longer alive and the memory has been
-    /// reclaimed, this method must return
-    /// `Err(process::Error::NoSuchApp)`.
+    /// 如果进程不再存活并且内存已经被回收，这个方法必须返回`Err(process::Error::NoSuchApp)`。
     ///
-    /// # Default Process Buffer
+    /// # 默认进程缓冲区
     ///
-    /// A default instance of a process buffer must return
-    /// `Err(process::Error::NoSuchApp)` without executing the passed
-    /// closure.
+    /// 进程缓冲区的默认实例必须返回 `Err(process::Error::NoSuchApp)` 而不执行传递的闭包。
     fn enter<F, R>(&self, fun: F) -> Result<R, process::Error>
     where
         F: FnOnce(&ReadableProcessSlice) -> R;
 }
 
-/// A readable and writeable region of userspace process memory.
+/// 用户空间进程内存的可读写区域。
 ///
-/// This trait can be used to gain read-write access to memory regions
-/// wrapped in a [`ReadWriteProcessBuffer`].
+/// 此特征可用于获得对包装在 [`ReadWriteProcessBuffer`] 中的内存区域的读写访问权限。
 ///
-/// This is a supertrait of [`ReadableProcessBuffer`], which features
-/// methods allowing mutable access.
+/// 这是 [`ReadableProcessBuffer`] 的超特征，它具有允许可变访问的方法。
 pub trait WriteableProcessBuffer: ReadableProcessBuffer {
-    /// Applies a function to the mutable process slice reference
-    /// pointed to by the [`ReadWriteProcessBuffer`].
+    /// 将函数应用于 [`ReadWriteProcessBuffer`] 指向的可变进程切片引用。
     ///
-    /// If the process is no longer alive and the memory has been
-    /// reclaimed, this method must return
-    /// `Err(process::Error::NoSuchApp)`.
+    /// 如果进程不再存活并且内存已经被回收，这个方法必须返回`Err(process::Error::NoSuchApp)`。
     ///
-    /// # Default Process Buffer
-    ///
-    /// A default instance of a process buffer must return
-    /// `Err(process::Error::NoSuchApp)` without executing the passed
-    /// closure.
+    /// # 默认进程缓冲区
+    //
+    /// 进程缓冲区的默认实例必须返回 `Err(process::Error::NoSuchApp)` 而不执行传递的闭包。
     fn mut_enter<F, R>(&self, fun: F) -> Result<R, process::Error>
     where
         F: FnOnce(&WriteableProcessSlice) -> R;
 }
 
-/// Read-only buffer shared by a userspace process
+/// 用户空间进程共享的只读缓冲区
+
+/// 当进程“允许”其内存的特定部分给内核并授予内核对该内存的读取访问权限时，此结构将提供给Capsule。
 ///
-/// This struct is provided to capsules when a process `allow`s a
-/// particular section of its memory to the kernel and gives the
-/// kernel read access to this memory.
-///
-/// It can be used to obtain a [`ReadableProcessSlice`], which is
-/// based around a slice of [`Cell`]s. This is because a userspace can
-/// `allow` overlapping sections of memory into different
-/// [`ReadableProcessSlice`]. Having at least one mutable Rust slice
-/// along with read-only slices to overlapping memory in Rust violates
-/// Rust's aliasing rules. A slice of [`Cell`]s avoids this issue by
-/// explicitly supporting interior mutability. Still, a memory barrier
-/// prior to switching to userspace is required, as the compiler is
-/// free to reorder reads and writes, even through [`Cell`]s.
+/// 可用于获取 [`ReadableProcessSlice`]，它基于 [`Cell`] 的切片。
+/// 这是因为用户空间可以“允许”内存的重叠部分进入不同的 [`ReadableProcessSlice`]。
+/// 在 Rust 中至少有一个可变的 Rust 切片以及与重叠内存的只读切片违反了 Rust 的aliasing rules。
+/// [`Cell`]切片通过明确支持内部可变性避免了这个问题。尽管如此，在切换到用户空间之前还是需要一个memory barrier，
+/// 因为编译器可以自由地重新排序读取和写入，即使通过 [`Cell`]s 也是如此。
 pub struct ReadOnlyProcessBuffer {
     ptr: *const u8,
     len: usize,
@@ -236,13 +187,11 @@ pub struct ReadOnlyProcessBuffer {
 }
 
 impl ReadOnlyProcessBuffer {
-    /// Construct a new [`ReadOnlyProcessBuffer`] over a given pointer and
-    /// length.
+    /// 在给定的指针和长度上构造一个新的 [`ReadOnlyProcessBuffer`]。
     ///
-    /// # Safety requirements
+    /// ＃ 安全要求
     ///
-    /// Refer to the safety requirements of
-    /// [`ReadOnlyProcessBuffer::new_external`].
+    /// 参考[`ReadOnlyProcessBuffer::new_external`]的安全要求。
     pub(crate) unsafe fn new(ptr: *const u8, len: usize, process_id: ProcessId) -> Self {
         ReadOnlyProcessBuffer {
             ptr,
@@ -251,37 +200,24 @@ impl ReadOnlyProcessBuffer {
         }
     }
 
-    /// Construct a new [`ReadOnlyProcessBuffer`] over a given pointer
-    /// and length.
+    /// 在给定的指针和长度上构造一个新的 [`ReadOnlyProcessBuffer`]。
     ///
-    /// Publicly accessible constructor, which requires the
-    /// [`capabilities::ExternalProcessCapability`] capability. This
-    /// is provided to allow implementations of the
-    /// [`Process`](crate::process::Process) trait outside of the
-    /// `kernel` crate.
+    /// pub 构造函数，需要 [`capabilities::ExternalProcessCapability`] Capability。
+    /// 这是为了允许在 `kernel` crate 之外实现 [`Process`](crate::process::Process) trait。
     ///
-    /// # Safety requirements
+    /// ＃ 安全要求
     ///
-    /// If the length is `0`, an arbitrary pointer may be passed into
-    /// `ptr`. It does not necessarily have to point to allocated
-    /// memory, nor does it have to meet [Rust's pointer validity
-    /// requirements](https://doc.rust-lang.org/core/ptr/index.html#safety).
-    /// [`ReadOnlyProcessBuffer`] must ensure that all Rust slices
-    /// with a length of `0` must be constructed over a valid (but not
-    /// necessarily allocated) base pointer.
+    /// 如果长度为 `0`，则可以将任意指针传递给 `ptr`。它不一定要指向分配的内存，也不一定要满足【Rust 的指针有效性要求】
+    /// （https://doc.rust-lang.org/core/ptr/index.html#safety）。
     ///
-    /// If the length is not `0`, the memory region of `[ptr; ptr +
-    /// len)` must be valid memory of the process of the given
-    /// [`ProcessId`]. It must be allocated and and accessible over
-    /// the entire lifetime of the [`ReadOnlyProcessBuffer`]. It must
-    /// not point to memory outside of the process' accessible memory
-    /// range, or point (in part) to other processes or kernel
-    /// memory. The `ptr` must meet [Rust's requirements for pointer
-    /// validity](https://doc.rust-lang.org/core/ptr/index.html#safety),
-    /// in particular it must have a minimum alignment of
-    /// `core::mem::align_of::<u8>()` on the respective platform. It
-    /// must point to memory mapped as _readable_ and optionally
-    /// _writable_ and _executable_.
+    /// [`ReadOnlyProcessBuffer`] 必须确保所有长度为 `0` 的 Rust 切片必须在有效（但不一定已分配）的基指针上构造。
+    ///
+    /// 如果长度不为`0`，则`[ptr; 的内存区域； ptr + len)` 必须是给定 [`ProcessId`] 的进程的有效内存。
+    /// 它必须在 [`ReadOnlyProcessBuffer`] 的整个生命周期内进行分配和访问。它不得指向进程可访问内存范围之外的内存，
+    /// 或（部分）指向其他进程或内核内存。 `ptr` 必须满足 [Rust 对指针有效性的要求]
+    /// (https://doc.rust-lang.org/core/ptr/index.html#safety)，
+    /// 特别是在各自的platform上它必须具有 `core::mem::align_of::<u8>()`的最小对齐方式。
+    /// 它必须指向映射为_可读_和可选_可写_和_可执行_的内存。
     pub unsafe fn new_external(
         ptr: *const u8,
         len: usize,
@@ -291,14 +227,10 @@ impl ReadOnlyProcessBuffer {
         Self::new(ptr, len, process_id)
     }
 
-    /// Consumes the ReadOnlyProcessBuffer, returning its constituent
-    /// pointer and size. This ensures that there cannot
-    /// simultaneously be both a `ReadOnlyProcessBuffer` and a pointer
-    /// to its internal data.
+    /// 使用 ReadOnlyProcessBuffer，返回其组成指针和大小。
+    /// 这确保不能同时存在“ReadOnlyProcessBuffer”和指向其内部数据的指针。
     ///
-    /// `consume` can be used when the kernel needs to pass the
-    /// underlying values across the kernel-to-user boundary (e.g., in
-    /// return values to system calls).
+    /// `consume` 可以在内核需要跨内核到用户边界传递底层值时使用（例如，将返回值传递给系统调用）。
     pub(crate) fn consume(self) -> (*const u8, usize) {
         (self.ptr, self.len)
     }
@@ -327,22 +259,12 @@ impl ReadableProcessBuffer for ReadOnlyProcessBuffer {
             Some(pid) => pid
                 .kernel
                 .process_map_or(Err(process::Error::NoSuchApp), pid, |_| {
-                    // Safety: `kernel.process_map_or()` validates that
-                    // the process still exists and its memory is still
-                    // valid. In particular, `Process` tracks the "high water
-                    // mark" of memory that the process has `allow`ed to the
-                    // kernel. Because `Process` does not feature an API to
-                    // move the "high water mark" down again, which would be
-                    // called once a `ProcessBuffer` has been passed back into
-                    // the kernel, a given `Process` implementation must assume
-                    // that the memory described by a once-allowed
-                    // `ProcessBuffer` is still in use, and thus will not
-                    // permit the process to free any memory after it has
-                    // been `allow`ed to the kernel once. This guarantees
-                    // that the buffer is safe to convert into a slice
-                    // here. For more information, refer to the
-                    // comment and subsequent discussion on tock/tock#2632:
-                    // https://github.com/tock/tock/pull/2632#issuecomment-869974365
+                    // 安全性：`kernel.process_map_or()` 验证进程仍然存在并且它的内存仍然有效。
+                    // 特别是，“进程”会跟踪进程“允许”进入内核的内存的“high water mark”。
+                    // 因为 `Process` 没有 API 来再次向下移动“high water mark”，一旦 `ProcessBuffer` 被传回内核，
+                    // 就会调用它，给定的 `Process` 实现必须假定由曾经允许的“ProcessBuffer”仍在使用中，
+                    // 因此在被内核“允许”一次后，将不允许进程释放任何内存。 这保证了缓冲区在这里可以安全地转换为切片。
+                    // 有关更多信息，请参阅 tock/tock#2632 上的评论和后续讨论：https://github.com/tock/tock/pull/2632#issuecomment-869974365
                     Ok(fun(unsafe {
                         raw_processbuf_to_roprocessslice(self.ptr, self.len)
                     }))
@@ -361,23 +283,19 @@ impl Default for ReadOnlyProcessBuffer {
     }
 }
 
-/// Provides access to a ReadOnlyProcessBuffer with a restricted lifetime.
-/// This automatically dereferences into a ReadOnlyProcessBuffer
+/// 提供对具有受限生命周期的 ReadOnlyProcessBuffer 的访问。 这会自动取消引用转到 ReadOnlyProcessBuffer
 pub struct ReadOnlyProcessBufferRef<'a> {
     buf: ReadOnlyProcessBuffer,
     _phantom: PhantomData<&'a ()>,
 }
 
 impl ReadOnlyProcessBufferRef<'_> {
-    /// Construct a new [`ReadOnlyProcessBufferRef`] over a given pointer and
-    /// length with a lifetime derived from the caller.
+    /// 在给定的指针和长度上构造一个新的 [`ReadOnlyProcessBufferRef`]，其生命周期源自caller。
     ///
-    /// # Safety requirements
+    /// ＃ 安全要求
     ///
-    /// Refer to the safety requirements of
-    /// [`ReadOnlyProcessBuffer::new_external`]. The derived lifetime can
-    /// help enforce the invariant that this incoming pointer may only
-    /// be access for a certain duration.
+    /// 参考[`ReadOnlyProcessBuffer::new_external`]的安全要求。
+    /// 派生的生命周期可以帮助强制执行此传入指针只能在特定持续时间内访问的不变量。
     pub(crate) unsafe fn new(ptr: *const u8, len: usize, process_id: ProcessId) -> Self {
         Self {
             buf: ReadOnlyProcessBuffer::new(ptr, len, process_id),

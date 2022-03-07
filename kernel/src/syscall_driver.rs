@@ -1,77 +1,52 @@
-//! System call interface for userspace processes.
+//! 用户空间进程的系统调用接口。
 //!
-//! Drivers implement these interfaces to expose operations to processes.
+//! 驱动程序实现这些接口以将操作公开给进程。
 //!
-//! # System-call Overview
+//! # 系统调用概述
 //!
-//! Tock supports six system calls. The `allow_readonly`, `allow_readwrite`,
-//! `subscribe`, `yield`, and `memop` system calls are handled by the core
-//! kernel, while `command`is implemented by drivers. The main system calls:
+//! Tock 支持六个系统调用。
+//! `allow_readonly`、`allow_readwrite`、`subscribe`、`yield` 和 `memop` 系统调用由核心内核处理，
+//! 而 `command` 由驱动程序实现。
+//! 主要系统调用：
 //!
-//!   * `subscribe` passes a upcall to the driver which it can
-//!   invoke on the process later, when an event has occurred or data
-//!   of interest is available.
+//!   * `subscribe` 将upcall传递给驱动程序，
+//!     当事件发生或感兴趣的数据可用时，它可以稍后在进程上调用该驱动程序。
 //!
-//!   * `command` tells the driver to do something immediately.
+//!   * `command` 告诉驱动程序立即做某事。
 //!
-//!   * `allow_readwrite` provides the driver read-write access to an
-//!   application buffer.
+//!   * `allow_readwrite` 为驱动程序提供对应用程序缓冲区的读写访问。
 //!
-//!   * `allow_userspace_readable` provides the driver read-write access to an
-//!   application buffer that is still shared with the app.
+//!   * `allow_userspace_readable` 为驱动程序提供对仍与应用程序共享的应用程序缓冲区的读写访问权限。
 //!
-//!   * `allow_readonly` provides the driver read-only access to an
-//!   application buffer.
+//!   * `allow_readonly` 为驱动程序提供对应用程序缓冲区的只读访问。
 //!
-//! ## Mapping system-calls to drivers
+//! ## 将系统调用映射到驱动程序
 //!
-//! Each of these three system calls takes at least two
-//! parameters. The first is a _driver identifier_ and tells the
-//! scheduler which driver to forward the system call to. The second
-//! parameters is a __syscall number_ and is used by the driver to
-//! differentiate instances of the call with different driver-specific
-//! meanings (e.g. `subscribe` for "data received" vs `subscribe` for
-//! "send completed"). The mapping between _driver identifiers_ and
-//! drivers is determined by a particular platform, while the _syscall
-//! number_ is driver-specific.
+//! 这三个系统调用中的每一个都至少需要两个参数。 第一个是_驱动程序标识符_，
+//! 它告诉调度程序将系统调用转发到哪个驱动程序。 第二个参数是__syscall number_，
+//! 驱动程序使用它来区分具有不同驱动程序特定含义的调用实例（例如，“subscribe”表示“data received”
+//! 与“subscribe”表示“send completed”）。 _driver identifiers_和驱动程序之间的映射由特定平台确定，
+//! 而_syscall number_是特定于驱动程序的。
 //!
-//! One convention in Tock is that _driver minor number_ 0 for the `command`
-//! syscall can always be used to determine if the driver is supported by
-//! the running kernel by checking the return code. If the return value is
-//! greater than or equal to zero then the driver is present. Typically this is
-//! implemented by a null command that only returns 0, but in some cases the
-//! command can also return more information, like the number of supported
-//! devices (useful for things like the number of LEDs).
+//! Tock 中的一个约定是，`command` 系统调用的_driver minor number_0 始终可用于通过检查返回代码
+//! 来确定正在运行的内核是否支持驱动程序。 如果返回值大于或等于零，则驱动程序存在。
+//! 通常这是由只返回 0 的空命令实现的，但在某些情况下，该命令还可以返回更多信息，例如支持的设备数量。如LED
 //!
 //! # The `yield` system call class
 //!
-//! While drivers do not handle `yield` system calls, it is important
-//! to understand them and how they interact with `subscribe`, which
-//! registers upcall functions with the kernel. When a process calls
-//! a `yield` system call, the kernel checks if there are any pending
-//! upcalls for the process. If there are pending upcalls, it
-//! pushes one upcall onto the process stack. If there are no
-//! pending upcalls, `yield-wait` will cause the process to sleep
-//! until a upcall is trigered, while `yield-no-wait` returns
-//! immediately.
+//! 虽然驱动程序不处理 `yield` 系统调用，但了解它们以及它们如何与 `subscribe` 交互很重要，
+//! 后者向内核注册了upcall函数。 当进程调用 `yield` 系统调用时，内核会检查该进程是否有任何挂起
+//! 的upcall。 如果有挂起的 upcall，它会将一个 upcall 压入进程堆栈。 如果没有挂起的 upcall，
+//! `yield-wait` 将导致进程休眠，直到触发 upcall，而 `yield-no-wait` 立即返回。
 //!
 //! # Method result types
 //!
-//! Each driver method has a limited set of valid return types. Every
-//! method has a single return type corresponding to success and a
-//! single return type corresponding to failure. For the `subscribe`
-//! and `allow` system calls, these return types are the same for
-//! every instance of those calls. Each instance of the `command`
-//! system call, however, has its own specified return types. A
-//! command that requests a timestamp, for example, might return a
-//! 32-bit number on success and an error code on failure, while a
-//! command that requests time of day in microsecond granularity might
-//! return a 64-bit number and a 32-bit timezone encoding on success,
-//! and an error code on failure.
+//! 每个驱动程序方法都有一组有限的有效返回类型。 每个方法都有一个对应于成功的返回类型和一个对应于失败的返回类型。
+//! 对于 `subscribe` 和 `allow` 系统调用，这些调用的每个实例的这些返回类型都是相同的。
+//! 然而，“command”系统调用的每个实例都有自己指定的返回类型。 例如，请求时间戳的命令可能会在成功时返回 32 位数字，
+//! 在失败时会返回错误代码，而请求以微秒为单位的时间的命令可能会返回 64 位数字和 32 位时区成功时编码，失败时错误代码。
 //!
-//! These result types are represented as safe Rust types. The core
-//! kernel (the scheduler and syscall dispatcher) is responsible for
-//! encoding these types into the Tock system call ABI specification.
+//! 这些结果类型表示为安全的 Rust 类型。 核心内核（调度程序和系统调用调度程序）负责将这些类型编码到 Tock 系统调用 ABI 规范中。
 
 use core::convert::TryFrom;
 
@@ -81,21 +56,14 @@ use crate::process::ProcessId;
 use crate::processbuffer::UserspaceReadableProcessBuffer;
 use crate::syscall::SyscallReturn;
 
-/// Possible return values of a `command` driver method, as specified
-/// in TRD104.
+/// `command` 驱动方法的可能返回值，如 TRD104 中所指定。
 ///
-/// This is just a wrapper around
-/// [`SyscallReturn`](SyscallReturn) since a
-/// `command` driver method may only return primitve integer types as
-/// payload.
+/// 这只是 [`SyscallReturn`](SyscallReturn) 的包装，因为 `command` diver方法可能只返回原始整数类型作为。
 ///
-/// It is important for this wrapper to only be constructable over
-/// variants of
-/// [`SyscallReturn`](SyscallReturn) that are
-/// deemed safe for a capsule to construct and return to an
-/// application (e.g. not
-/// [`SubscribeSuccess`](crate::syscall::SyscallReturn::SubscribeSuccess)).
-/// This means that the inner value **must** remain private.
+/// 重要的是，此包装器只能在 [`SyscallReturn`](SyscallReturn) 的变体上构造，
+/// 这些变体被认为对于capsule构造和返回应用程序是安全的
+/// （例如，不是 [`SubscribeSuccess`](crate:: syscall::SyscallReturn::SubscribeSuccess))。
+/// 这意味着内部值**必须**保持私有。
 pub struct CommandReturn(SyscallReturn);
 impl CommandReturn {
     pub(crate) fn into_inner(self) -> SyscallReturn {
@@ -168,27 +136,17 @@ impl From<process::Error> for CommandReturn {
     }
 }
 
-/// Trait for capsules implementing peripheral driver system calls
-/// specified in TRD104. The kernel translates the values passed from
-/// userspace into Rust types and includes which process is making the
-/// call. All of these system calls perform very little synchronous work;
-/// long running computations or I/O should be split-phase, with an upcall
-/// indicating their completion.
+/// 实现 TRD104 中指定的peripheral diver系统调用的capsule的Trait。
+/// 内核将从用户空间传递的值转换为 Rust 类型，并包括哪个进程正在进行调用。
+/// 所有这些系统调用只执行很少的同步工作； 长时间运行的计算或 I/O 应该是分阶段的，并带有指示其完成的调用。
 ///
-/// The exact instances of each of these methods (which identifiers are valid
-/// and what they represents) are specific to the peripheral system call
-/// driver.
+/// 这些方法中的每一个的确切实例（哪些标识符是有效的以及它们代表什么）特定于peripheral system call diver。
 ///
-/// Note about subscribe: upcall subscriptions are handled entirely by the core
-/// kernel, and therefore there is no subscribe function for capsules to
-/// implement.
+/// 关于订阅的注意事项：upcall 订阅完全由核心内核处理，因此capsule没有订阅功能可以实现。
 #[allow(unused_variables)]
 pub trait SyscallDriver {
-    /// System call for a process to perform a short synchronous operation
-    /// or start a long-running split-phase operation (whose completion
-    /// is signaled with an upcall). Command 0 is a reserved command to
-    /// detect if a peripheral system call driver is installed and must
-    /// always return a CommandReturn::Success.
+    /// 对进程执行短同步操作或启动长时间运行的分阶段操作的系统调用（其完成由upcall发出信号）。
+    /// 命令 0 是一个保留命令，用于检测是否安装了peripheral system call diver，并且必须始终返回 CommandReturn::Success。
     fn command(
         &self,
         command_num: usize,
@@ -199,15 +157,11 @@ pub trait SyscallDriver {
         CommandReturn::failure(ErrorCode::NOSUPPORT)
     }
 
-    /// System call for a process to pass a buffer (a
-    /// UserspaceReadableProcessBuffer) to the kernel that the kernel can either
-    /// read or write. The kernel calls this method only after it checks that
-    /// the entire buffer is within memory the process can both read and write.
+    /// 进程的系统调用将缓冲区（UserspaceReadableProcessBuffer）传递给内核可以读取或写入的内核。
+    /// 内核仅在检查整个缓冲区是否在进程可以读写的内存中后才调用此方法。
     ///
-    /// This is different to `allow_readwrite()` in that the app is allowed
-    /// to read the buffer once it has been passed to the kernel.
-    /// For more details on how this can be done safely see the userspace
-    /// readable allow syscalls TRDXXX.
+    /// 这与 `allow_readwrite()` 的不同之处在于，一旦缓冲区被传递给内核，应用程序就可以读取缓冲区。
+    /// 有关如何安全完成此操作的更多详细信息，请参阅用户空间可读允许系统调用 TRDXXX。
     fn allow_userspace_readable(
         &self,
         app: ProcessId,
@@ -217,13 +171,10 @@ pub trait SyscallDriver {
         Err((slice, ErrorCode::NOSUPPORT))
     }
 
-    /// Request to allocate a capsule's grant for a specific process.
+    /// 请求为特定Process分配capsule的Grant。
     ///
-    /// The core kernel uses this function to instruct a capsule to ensure its
-    /// grant (if it has one) is allocated for a specific process. The core
-    /// kernel needs the capsule to initiate the allocation because only the
-    /// capsule knows the type T (and therefore the size of T) that will be
-    /// stored in the grant.
+    /// 核心内核使用这个函数来指示一个capsule确保它的Grant（如果有的话）被分配给一个特定的进程。
+    /// 核心内核需要capsule来启动分配，因为只有capsule知道将存储在Grant中的类型 T（以及 T 的大小）。
     ///
     /// The typical implementation will look like:
     /// ```rust, ignore
@@ -232,83 +183,45 @@ pub trait SyscallDriver {
     /// }
     /// ```
     ///
-    /// No default implementation is provided to help prevent accidentally
-    /// forgetting to implement this function.
+    /// 没有提供默认实现来帮助防止意外忘记实现此功能。
     ///
-    /// If a capsule fails to successfully implement this function, subscribe
-    /// calls from userspace for the Driver may fail.
+    /// 如果一个capsule未能成功实现这个功能，那么从用户空间订阅Driver的调用可能会失败。
     //
-    // The inclusion of this function originates from the method for ensuring
-    // correct upcall swapping semantics in the kernel starting with Tock 2.0.
-    // To ensure upcalls are always swapped correctly all upcall handling is
-    // done in the core kernel. Capsules only have access to a handle which
-    // permits them to schedule upcalls, but capsules no longer manage upcalls.
+    // 包含此功能源于从 Tock 2.0 开始在内核中确保正确上调用交换语义的方法。为了确保Upcall始终正确交换，
+    // 所有Upcall处理都在核心内核中完成。 Capsules 只能访问允许他们安排 upcalls 的句柄，但 capsules 不再管理 upcalls。
     //
-    // The core kernel stores upcalls in the process's grant region along with
-    // the capsule's grant object. A simultaneous Tock 2.0 change requires that
-    // capsules wishing to use upcalls must also use grants. Storing upcalls in
-    // the grant requires that the grant be allocated for that capsule in that
-    // process. This presents a challenge as grants are dynamically allocated
-    // only when actually used by a process. If a subscribe syscall happens
-    // first, before the capsule has allocated the grant, the kernel has no way
-    // to store the upcall. The kernel cannot allocate the grant itself because
-    // it does not know the type T the capsule will use for the grant (or more
-    // specifically the kernel does not know the size of T to use for the memory
-    // allocation).
+    // 核心内核将Upcall与Capsule的Grant对象一起存储在进程的Grant区域中。
+    // 同时 Tock 2.0 更改要求希望使用 upcall 的Capsule也必须使用Grant。在Grant中存储upcall需要在该过程中为该Capsule分配Grant。
+    // 这提出了一个挑战，因为Grant仅在进程实际使用时才动态分配。如果订阅系统调用首先发生，在Capsule分配Grant之前，
+    // 内核无法存储upcall。内核无法自行分配Grant，因为它不知道capsule将用于Grant的类型 T
+    // （或者更具体地说，内核不知道用于内存分配的 T 的大小）。
     //
-    // There are a few ideas on how to handle this case where the kernel must
-    // store an upcall before the capsule has allocated the grant.
+    // 关于如何处理这种情况，内核必须在Capsule分配Grant前存储upcall
     //
-    // 1. The kernel could allocate space for the grant type T, but not actually
-    //    initialize it, based only on the size of T. However, this would
-    //    require the kernel to keep track of the size of T for each grant, and
-    //    there is no convenient place to store that information.
+    // 1. 内核可以为Grant类型 T 分配空间，但不实际初始化它，仅基于 T 的大小。
+    //    但是，这需要内核跟踪每个Grant的 T 大小，并且没有方便的地方存储该信息。
     //
-    // 2. The kernel could store upcalls and grant types separately in the grant
-    //    region.
+    // 2. 内核可以在Grant区域中分别存储upcall和Grant类型。
     //
-    //    a. One approach is to store upcalls completely dynamically. That is,
-    //       whenever a new subscribe_num is used for a particular driver the
-    //       core kernel allocates new memory from the grant region to store it.
-    //       This would work, but would have high memory and runtime overhead to
-    //       manage all of the dynamic upcall stores.
-    //    b. To reduce the tracking overhead, all upcalls for a particular
-    //       driver could be stored together as one allocation. This would only
-    //       cost one additional pointer per grant to point to the upcall array.
-    //       However, the kernel does not know how many upcalls a particular
-    //       driver needs, and there is no convenient place for it to store that
-    //       information.
+    //    a. 一种方法是完全动态地存储Upcall。 也就是说，每当新的 subscribe_num 用于特定驱动程序时，
+    //       核心内核都会从Grant区域分配新内存来存储它。这会起作用，但管理所有动态调用存储会产生很高的内存和运行时开销。
+    //    b. 为了减少跟踪开销，可以将特定驱动程序的所有upcall存储在一起作为一个分配。
+    //       每次grant只需要一个额外的指针来指向 upcall 数组。 但是，内核不知道特定驱动程序需要多少次调用，并且没有方便的地方来存储该信息。
     //
-    // 3. The kernel could allocate a fixed region for all upcalls across all
-    //    drivers in the grant region. When each grant is created it could tell
-    //    the kernel how many upcalls it will use and the kernel could easily
-    //    keep track of the total. Then, when a process's memory is allocated
-    //    the kernel would reserve rooom for that many upcalls. There are two
-    //    issues, however. The kernel would not know how many upcalls each
-    //    driver individually requires, so it would not be able to index into
-    //    this array properly to store each upcall. Second, the upcall array
-    //    memory would be statically allocated, and would be wasted for drivers
-    //    the process never uses.
+    // 3. 内核可以为Grant区域中所有驱动程序的所有调用分配一个固定区域。 当每个grant被创建时，
+    //    它可以告诉内核它将使用多少次调用，并且内核可以轻松地跟踪总数。 然后，当一个进程的内存被分配时，
+    //    内核会为这么多的调用保留空间。 然而，有两个问题。 内核不知道每个驱动程序单独需要多少次调用，
+    //    因此它无法正确索引到该数组以存储每个调用。 其次，调用数组内存将被静态分配，并且会浪费在进程从不使用的驱动程序上。
     //
-    //    A version of this approach would assume a maximum limit of a certain
-    //    number of upcalls per driver. This would address the indexing
-    //    challenge, but would still have the memory overhead problem. It would
-    //    also limit capsule flexibility by capping the number of upcalls any
-    //    capsule could ever use.
+    //    这种方法的一个版本会假设每个驱动程序有一定数量的向上调用的最大限制。 这将解决索引挑战，
+    //    但仍然存在内存开销问题。 它还会通过限制任何capsule可以使用的upcall的数量来限制capusle的灵活性。
     //
-    // 4. The kernel could have some mechanism to ask a capsule to allocate its
-    //    grant, and since the capsule knows the size of T and the number of
-    //    upcalls it uses the grant type and upcall storage could be allocated
-    //    together.
+    // 4. 内核可以有一些机制来要求一个capsule分配它的grant，并且由于capsule知道 T 的大小
+    //    和它使用grant类型的upcall的数量，并且upcall存储可以一起分配。
     //
-    // Based on the available options, the Tock developers decided go with
-    // option 4 and add the `allocate_grant` method to the `Driver` trait. This
-    // mechanism may find more uses in the future if the kernel needs to store
-    // additional state on a per-driver basis and therefore needs a mechanism to
-    // force a grant allocation.
+    // 基于可用的选项，Tock 开发人员决定使用选项 4，并将 `allocate_grant` 方法添加到 `Driver` 特征。
+    // 如果内核需要在每个驱动程序的基础上存储额外的状态并因此需要一种机制来强制grant分配，那么这种机制可能会在未来找到更多用途。
     //
-    // This same mechanism was later extended to handle allow calls as well.
-    // Capsules that do not need upcalls but do use process buffers must also
-    // implement this function.
+    // 这个相同的机制后来也被扩展为处理允许调用。 不需要upcall但使用进程缓冲区的capsule也必须实现此功能。
     fn allocate_grant(&self, process_id: ProcessId) -> Result<(), crate::process::Error>;
 }

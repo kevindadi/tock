@@ -4,42 +4,39 @@ use core::convert::TryFrom;
 
 /// Standard errors in Tock.
 ///
-/// In contrast to [`Result<(), ErrorCode>`](crate::Result<(), ErrorCode>) this
-/// does not feature any success cases and is therefore more appropriate for the
-/// Tock 2.0 system call interface, where success payloads and errors are not
-/// packed into the same 32-bit wide register.
+/// 与 [`Result<(), ErrorCode>`](crate::Result<(), ErrorCode>) 相比，它没有任何成功案例，
+/// 因此更适合 Tock 2.0 系统调用接口，其中成功负载和错误不会被打包到同一个 32 位宽的寄存器中。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(usize)]
 pub enum ErrorCode {
-    // Reserved value, for when "no error" / "success" should be
-    // encoded in the same numeric representation as ErrorCode
+    // 保留值，当no error/success应以与 ErrorCode 相同的数字表示形式编码时
     //
     // Ok(()) = 0,
     /// Generic failure condition
     FAIL = 1,
-    /// Underlying system is busy; retry
+    /// 底层系统繁忙； 重试
     BUSY = 2,
-    /// The state requested is already set
+    /// 请求的状态已设置
     ALREADY = 3,
-    /// The component is powered down
+    /// 组件断电
     OFF = 4,
-    /// Reservation required before use
+    /// Reservation required before use 使用前需要初始化(预约)
     RESERVE = 5,
-    /// An invalid parameter was passed
+    /// 传递了一个无效的参数
     INVAL = 6,
-    /// Parameter passed was too large
+    /// 传递的参数太大
     SIZE = 7,
-    /// Operation canceled by a call
+    /// 被call取消的操作
     CANCEL = 8,
-    /// Memory required not available
+    /// 所需内存不可用
     NOMEM = 9,
-    /// Operation is not supported
+    /// 不支持操作
     NOSUPPORT = 10,
-    /// Device is not available
+    /// 设备不可用
     NODEVICE = 11,
-    /// Device is not physically installed
+    /// 物理设备未安装
     UNINSTALLED = 12,
-    /// Packet transmission not acknowledged
+    /// 数据包传输未确认
     NOACK = 13,
 }
 
@@ -92,31 +89,24 @@ impl From<ErrorCode> for Result<(), ErrorCode> {
     }
 }
 
-/// Convert a `Result<(), ErrorCode>` to a StatusCode (usize) for userspace.
+/// 将 `Result<(), ErrorCode>` 转换为用户空间的 StatusCode (usize)。
 ///
-/// StatusCode is a useful "pseudotype" (there is no actual Rust type called
-/// StatusCode in Tock) for three reasons:
+/// StatusCode 是一个有用的“伪类型”（在 Tock 中没有称为 StatusCode 的实际 Rust 类型），
+/// 原因有三个：
 ///
-/// 1. It can be represented in a single `usize`. This allows StatusCode to be
-///    easily passed across the syscall interface between the kernel and
-///    userspace.
+/// 1. 它可以用一个单一的`usize`来表示。
+///    这使得 StatusCode 可以轻松地通过内核和用户空间之间的系统调用接口传递。
 ///
-/// 2. It extends ErrorCode, but keeps the same error-to-number mappings as
-///    ErrorCode. For example, in both StatusCode and ErrorCode, the `SIZE`
-///    error is always represented as 7.
+/// 2. 它扩展了 ErrorCode，但保留了与 ErrorCode 相同的错误到数字的映射。
+///    例如，在 StatusCode 和 ErrorCode 中，`SIZE` 错误总是表示为 7。
 ///
-/// 3. It can encode success values, whereas ErrorCode can only encode errors.
-///    Number 0 in ErrorCode is reserved, and is used for `SUCCESS` in
-///    StatusCode.
+/// 3. 它可以对成功值进行编码，而 ErrorCode 只能对错误进行编码。
+///    ErrorCode 中的数字 0 是保留的，用于 StatusCode 中的“SUCCESS”。
 ///
-/// This helper function converts the Tock and Rust convention for a
-/// success/error type to a StatusCode. StatusCode is represented as a usize
-/// which is sufficient to send to userspace via an upcall.
-///
-/// The key to this conversion and portability between the kernel and userspace
-/// is that `ErrorCode`, which only expresses errors, is assigned fixed values,
-/// but does not use value 0 by convention. This allows us to use 0 as success
-/// in ReturnCode.
+/// 这个帮助函数将成功/错误类型的 Tock 和 Rust 约定转换为 StatusCode。
+/// StatusCode 表示为足以通过 upcall 发送到用户空间的使用大小。
+/// 内核和用户空间之间的这种转换和可移植性的关键是只表示错误的`ErrorCode`被分配了固定值，
+/// 但不使用约定的值0。 这允许我们在 ReturnCode 中使用 0 作为成功。
 pub fn into_statuscode(r: Result<(), ErrorCode>) -> usize {
     match r {
         Ok(()) => 0,

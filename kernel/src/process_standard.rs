@@ -1,7 +1,6 @@
-//! Tock default Process implementation.
+//! Tock 默认Process实现。
 //!
-//! `ProcessStandard` is an implementation for a userspace process running on
-//! the Tock kernel.
+//! `ProcessStandard` 是运行在 Tock 内核上的用户空间进程的实现。
 
 use core::cell::Cell;
 use core::cmp;
