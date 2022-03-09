@@ -8,7 +8,7 @@ use crate::ErrorCode;
 ///
 /// ### `memop_num`
 ///
-/// - `0`：BRK。 更改程序break的位置并返回 SyscallReturn
+/// - `0`：BRK. 更改程序break的位置并返回 SyscallReturn
 /// - `1`: SBRK. 改变程序break的位置，返回之前的break地址
 /// - `2`: 获取应用程序 RAM 分配的起始地址
 /// - `3`: 获取指向应用程序RAM分配结束后第一个地址的地址.
