@@ -1,6 +1,6 @@
-//! Tock 的主内核循环、调度程序循环和调度程序特征。
-//! 该模块还包括调度程序策略实现常用的实用程序功能。
-//! 调度策略（循环、优先级等）在“sched” carte中定义并由板子选择。
+//! Tock 的主内核循环、调度程序循环和调度程序特征
+//! 该模块还包括调度程序策略实现常用的实用程序功能
+//! 调度策略（循环、优先级等）在“sched” carte中定义并由板子选择
 
 use core::cell::Cell;
 use core::ptr::NonNull;
@@ -29,19 +29,19 @@ use crate::syscall_driver::CommandReturn;
 use crate::upcall::{Upcall, UpcallId};
 use crate::utilities::cells::NumericCellExt;
 
-/// 以微秒为单位的阈值，以考虑进程的时间片已耗尽。
-/// 也就是说，如果剩余时间片小于此阈值，Tock 将跳过重新调度进程。
+/// 以微秒为单位的阈值，以考虑进程的时间片已耗尽
+/// 也就是说，如果剩余时间片小于此阈值，Tock 将跳过重新调度进程
 pub(crate) const MIN_QUANTA_THRESHOLD_US: u32 = 500;
 
-/// 内核的主要对象。 每个开发板都需要创建一个。
+/// 内核的主要对象.每个开发板都需要创建一个
 pub struct Kernel {
-    /// 在任何给定时间存在多少“待办事项”。 这些包括未完成的调用和处于运行状态的进程。
+    /// 在任何给定时间存在多少“待办事项”。 这些包括未完成的调用和处于运行状态的进程.
     work: Cell<usize>,
 
-    /// 这包含一个指向静态进程指针数组的指针。
+    /// 这包含一个指向静态进程指针数组的指针.
     processes: &'static [Option<&'static dyn process::Process>],
 
-    /// 跟踪创建了多少进程标识符的计数器。 这用于为进程创建新的唯一标识符。
+    /// 跟踪创建了多少进程标识符的计数器。 这用于为进程创建新的唯一标识符.
     process_identifier_max: Cell<usize>,
 
     /// 已设置多少个Grant区域。 每次调用 `create_grant()` 时都会增加。
@@ -70,7 +70,7 @@ pub enum StoppedExecutingReason {
 
     /// 进程返回是因为它被内核抢占了
     /// 这可能意味着内核工作已准备就绪（很可能是因为触发了中断并且内核线程需要执行中断的下半部分），
-    /// 或者因为调度程序不再想要执行该进程。
+    /// 或者因为调度程序不再想要执行该进程.
     KernelPreemption,
 }
 

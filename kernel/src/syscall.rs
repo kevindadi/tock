@@ -1,4 +1,4 @@
-//! Tock 系统调用号定义和与架构无关的接口特征。
+//! Tock 系统调用号定义和与架构无关的接口特征
 
 use core::convert::TryFrom;
 use core::fmt::Write;
@@ -8,7 +8,7 @@ use crate::process;
 
 pub use crate::syscall_driver::{CommandReturn, SyscallDriver};
 
-/// 辅助函数将 u64 拆分为更高和更低的 u32。
+/// 辅助函数将 u64 拆分为更高和更低的 u32
 ///
 /// 用于在32位平台上编码64位宽的系统调用返回值。
 #[inline]
@@ -22,9 +22,9 @@ fn u64_to_be_u32s(src: u64) -> (u32, u32) {
 
 // ---------- 系统调用参数解码 ----------
 
-/// 根据 Tock ABI 中指定的标识符枚举系统调用类。
+/// 根据 Tock ABI 中指定的标识符枚举系统调用类
 ///
-/// 这些被编码为 8 位值，因为在某些架构上，值可以在指令本身中编码。
+/// 这些被编码为 8 位值，因为在某些架构上，值可以在指令本身中编码
 #[repr(u8)]
 #[derive(Copy, Clone, Debug)]
 pub enum SyscallClass {
@@ -38,7 +38,7 @@ pub enum SyscallClass {
     UserspaceReadableAllow = 7,
 }
 
-/// 根据 Tock ABI 中指定的 Yield 标识符值枚举 yield 系统调用。
+/// 根据 Tock ABI 中指定的 Yield 标识符值枚举 yield 系统调用
 #[derive(Copy, Clone, Debug)]
 pub enum YieldCall {
     NoWait = 0,
@@ -64,14 +64,14 @@ impl TryFrom<u8> for SyscallClass {
     }
 }
 
-/// TRD 104 中定义的解码系统调用。
+/// TRD 104 中定义的解码系统调用
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Syscall {
-    /// 表示Yield 系统调用类的结构。 `which` 是产量标识符值，`address` 是无等待字段。
+    /// 表示Yield 系统调用类的结构。 `which` 是产量标识符值，`address` 是无等待字段
     Yield { which: usize, address: *mut u8 },
 
-    /// 表示对Subscribe系统调用类的调用的结构。 `driver_number`是驱动标识符，`subdriver_number`是订阅标识符，
-    /// `upcall_ptr`是upcall指针，`appdata`是应用数据。
+    /// 表示对Subscribe系统调用类的调用的结构.`driver_number`是驱动标识符,`subdriver_number`是订阅标识符,
+    /// `upcall_ptr`是upcall指针,`appdata`是应用数据.
     Subscribe {
         driver_number: usize,
         subdriver_number: usize,
@@ -79,8 +79,8 @@ pub enum Syscall {
         appdata: usize,
     },
 
-    /// 表示Command系统调用类调用的结构。
-    /// `driver_number` 是驱动程序标识符，`subdriver_number` 是命令标识符。
+    /// 表示Command系统调用类调用的结构.
+    /// `driver_number` 是驱动程序标识符，`subdriver_number` 是命令标识符.
     Command {
         driver_number: usize,
         subdriver_number: usize,
@@ -88,8 +88,8 @@ pub enum Syscall {
         arg1: usize,
     },
 
-    /// 表示调用 ReadWriteAllow 系统调用类的结构。 `driver_number` 是驱动标识符，
-    /// `subdriver_number` 是缓冲区标识符，`allow_address` 是地址，`allow_size` 是大小。
+    /// 表示调用 ReadWriteAllow 系统调用类的结构.`driver_number` 是驱动标识符,
+    /// `subdriver_number` 是缓冲区标识符,`allow_address` 是地址,`allow_size` 是大小.
     ReadWriteAllow {
         driver_number: usize,
         subdriver_number: usize,
