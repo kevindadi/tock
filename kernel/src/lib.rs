@@ -93,7 +93,7 @@ mod process_standard;
 mod process_utilities;
 mod syscall_driver;
 
-// 核心资源公开为 `kernel::Type`。
+// 核心资源公开为 `kernel::Type`.
 pub use crate::errorcode::ErrorCode;
 pub use crate::kernel::Kernel;
 pub use crate::process::ProcessId;

@@ -20,7 +20,7 @@ pub struct UpcallId {
 
 /// 调度进程 Upcall 时可能发生的错误。
 ///
-/// 考虑到 null upcall 是由进程设置的明确定义的 upcall，计划 null upcall（不会传递给进程）故意不是错误。
+/// 考虑到 null upcall 是由进程设置的明确定义的 upcall，计划 null upcall(不会传递给进程)不是错误。
 /// 它的行为本质上与进程设置适当的 Upcall 相同，并且会忽略所有调用，其好处是没有任务插入到进程的任务队列中。
 #[derive(Copy, Clone, Debug)]
 pub enum UpcallError {
@@ -55,11 +55,10 @@ pub(crate) struct Upcall {
     /// The ProcessId of the process this upcall is for.
     pub(crate) process_id: ProcessId,
 
-    /// A unique identifier of this particular upcall, representing the
-    /// driver_num and subdriver_num used to submit it.
+    /// 此特定 upcall 的唯一标识符，表示用于提交它的 driver_num 和 subdriver_num.
     pub(crate) upcall_id: UpcallId,
 
-    /// The application data passed by the app when `subscribe()` was called
+    /// 调用 subscribe() 时应用程序传递的应用程序数据
     pub(crate) appdata: usize,
 
     /// 指向与 app_id 关联的应用程序中函数的第一条指令的指针。

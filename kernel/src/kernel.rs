@@ -307,7 +307,7 @@ impl Kernel {
     /// Grant**必须**仅在_before_进程被初始化时创建。进程使用已分配的Grant数量来正确初始化进程的内存，
     /// 每个Grant都有一个指针。 如果在进程初始化后创建授权，这将出现Panic。
     ///
-    /// 调用此函数仅限于某些用户，并且要强制执行此调用此函数需要 `MemoryAllocationCapability` 能力。
+    /// 调用此函数仅限于某些用户，并且要强制执行调用此函数需要 `MemoryAllocationCapability`
     pub fn create_grant<
         T: Default,
         Upcalls: UpcallSize,
@@ -500,8 +500,8 @@ impl Kernel {
         let mut return_reason = StoppedExecutingReason::NoWorkLeft;
 
         // 由于时间片计算了进程的执行时间和进程在内核中花费的时间（设置它并处理它
-        // 的系统调用），我们打算继续运行该进程直到它没有更多的工作要做。
-        // 如果调度程序不再想要执行这个进程或者如果它超过了它的时间片，我们就会跳出这个循环。
+        // 的系统调用），我们打算继续运行该进程直到它没有更多的工作要做.
+        // 如果调度程序不再想要执行这个进程或者如果它超过了它的时间片,我们就会跳出这个循环.
         loop {
             let stop_running = match scheduler_timer.get_remaining_us() {
                 Some(us) => us <= MIN_QUANTA_THRESHOLD_US,

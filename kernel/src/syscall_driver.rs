@@ -10,7 +10,7 @@
 //! 主要系统调用：
 //!
 //!   * `subscribe` 将upcall传递给驱动程序，
-//!     当事件发生或感兴趣的数据可用时，它可以稍后在进程上调用该驱动程序。
+//!     当事件发生或感兴趣的数据可用时，它可以稍后在进程upcall该驱动程序。
 //!
 //!   * `command` 告诉驱动程序立即做某事。
 //!
@@ -142,7 +142,7 @@ impl From<process::Error> for CommandReturn {
 ///
 /// 这些方法中的每一个的确切实例（哪些标识符是有效的以及它们代表什么）特定于peripheral system call diver。
 ///
-/// 关于订阅的注意事项：upcall 订阅完全由核心内核处理，因此capsule没有订阅功能可以实现。
+/// 关于订阅的注意事项：upcall订阅完全由核心内核处理，因此capsule没有订阅功能可以实现。
 #[allow(unused_variables)]
 pub trait SyscallDriver {
     /// 对进程执行短同步操作或启动长时间运行的分阶段操作的系统调用（其完成由upcall发出信号）。
@@ -171,7 +171,7 @@ pub trait SyscallDriver {
         Err((slice, ErrorCode::NOSUPPORT))
     }
 
-    /// 请求为特定Process分配capsule的Grant。
+    /// 请求为Process分配capsule的Grant。
     ///
     /// 核心内核使用这个函数来指示一个capsule确保它的Grant（如果有的话）被分配给一个特定的进程。
     /// 核心内核需要capsule来启动分配，因为只有capsule知道将存储在Grant中的类型 T（以及 T 的大小）。

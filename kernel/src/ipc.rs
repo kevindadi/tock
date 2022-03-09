@@ -1,7 +1,6 @@
 //! Inter-process communication mechanism for Tock.
 //!
-//! This is a special syscall driver that allows userspace applications to
-//! share memory.
+//! 这是一个特殊的系统调用驱动程序，它允许用户空间应用程序共享内存.
 
 use crate::capabilities::MemoryAllocationCapability;
 use crate::grant::{AllowRoCount, AllowRwCount, Grant, UpcallCount};
@@ -18,28 +17,26 @@ pub const DRIVER_NUM: usize = 0x10000;
 /// Ids for read-only allow buffers
 mod ro_allow {
     pub(super) const SEARCH: usize = 0;
-    /// The number of allow buffers the kernel stores for this grant
+    /// 内核为此Grant存储的允许缓冲区的数量
     pub(super) const COUNT: usize = 1;
 }
 
-/// Enum to mark which type of upcall is scheduled for the IPC mechanism.
+/// 枚举为 IPC 机制安排了哪种类型的 upcall
 #[derive(Copy, Clone, Debug)]
 pub enum IPCUpcallType {
-    /// Indicates that the upcall is for the service upcall handler this
-    /// process has setup.
+    /// Indicates that upcall是针对此进程已设置的服务upcall处理程序的.
     Service,
-    /// Indicates that the upcall is from a different service app and will
-    /// call one of the client upcalls setup by this process.
+    /// Indicates that upcall 来自不同的服务app,并将调用此过程设置的客户端 upcalls 之一.
     Client,
 }
 
-/// State that is stored in each process's grant region to support IPC.
+/// 存储在每个进程的Grant区域中以支持 IPC 的状态.
 #[derive(Default)]
 struct IPCData;
 
 /// The IPC mechanism struct.
 pub struct IPC<const NUM_PROCS: usize> {
-    /// The grant regions for each process that holds the per-process IPC data.
+    /// 持有每个进程 IPC 数据的每个进程的Grant区域.
     data: Grant<
         IPCData,
         UpcallCount<NUM_PROCS>,

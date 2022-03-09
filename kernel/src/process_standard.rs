@@ -68,41 +68,31 @@ struct ProcessStandardDebug {
     timeslice_expiration_count: usize,
 }
 
-/// Entry that is stored in the grant pointer table at the top of process
-/// memory.
+/// 存储在进程内存顶部的Grant指针表中的条目。
 ///
-/// One copy of this entry struct is stored per grant region defined in the
-/// kernel. This type allows the core kernel to lookup a grant based on the
-/// driver_num associated with the grant, and also holds the pointer to the
-/// memory allocated for the particular grant.
+/// 每个在内核中定义的Grant区域都会存储一份该结构的副本。
+/// 这种类型允许内核根据与Grant关联的 driver_num 查找Grant，并且还保存指向为特定Grant分配的内存指针。
 #[repr(C)]
 struct GrantPointerEntry {
-    /// The syscall driver number associated with the allocated grant.
+    /// 与分配的Grant关联的系统调用驱动程序编号.
     ///
-    /// This defaults to 0 if the grant has not been allocated. Note, however,
-    /// that 0 is a valid driver_num, and therefore cannot be used to check if a
-    /// grant is allocated or not.
+    /// 如果尚未分配Grant,则默认为 0.但是请注意,0 是有效的 driver_num,因此不能用于检查是否分配了授权.
     driver_num: usize,
 
-    /// The start of the memory location where the grant has been allocated, or
-    /// null if the grant has not been allocated.
+    /// 已分配Grant的内存位置的开始,如果尚未分配,则为 null.
     grant_ptr: *mut u8,
 }
 
-/// A type for userspace processes in Tock.
+/// Tock 中用户空间进程的一种类型.
 pub struct ProcessStandard<'a, C: 'static + Chip> {
-    /// Identifier of this process and the index of the process in the process
-    /// table.
+    /// 该进程的标识符和进程在进程表中的索引.
     process_id: Cell<ProcessId>,
 
     /// Pointer to the main Kernel struct.
     kernel: &'static Kernel,
 
-    /// Pointer to the struct that defines the actual chip the kernel is running
-    /// on. This is used because processes have subtle hardware-based
-    /// differences. Specifically, the actual syscall interface and how
-    /// processes are switched to is architecture-specific, and how memory must
-    /// be allocated for memory protection units is also hardware-specific.
+    /// 指向定义内核运行的实际芯片的结构的指针.使用它是因为进程具有基于硬件的差异.
+    /// 具体来说，实际的系统调用接口和进程如何切换是特定于体系结构的，如何为内存保护单元分配内存也是特定于硬件的.
     chip: &'static C,
 
     /// Application memory layout:
@@ -133,87 +123,67 @@ pub struct ProcessStandard<'a, C: 'static + Chip> {
     ///  ╚═ ╘════════ ← memory_start            ═╝
     /// ```
     ///
-    /// The start of process memory. We store this as a pointer and length and
-    /// not a slice due to Rust aliasing rules. If we were to store a slice,
-    /// then any time another slice to the same memory or an ProcessBuffer is
-    /// used in the kernel would be undefined behavior.
+    /// 进程内存的开始.由于 Rust 别名规则,我们将其存储为指针和长度而不是切片.
+    /// 如果我们要存储一个切片,那么任何时候在同一内存中使用另一个切片或在内核中使用 ProcessBuffer 都是未定义的行为.
     memory_start: *const u8,
-    /// Number of bytes of memory allocated to this process.
+    /// 分配给该进程的内存字节数.
     memory_len: usize,
 
-    /// Reference to the slice of `GrantPointerEntry`s stored in the process's
-    /// memory reserved for the kernel. These driver numbers are zero and
-    /// pointers are null if the grant region has not been allocated. When the
-    /// grant region is allocated these pointers are updated to point to the
-    /// allocated memory and the driver number is set to match the driver that
-    /// owns the grant. No other reference to these pointers exists in the Tock
-    /// kernel.
+    /// 引用存储在为内核保留的进程内存中的“GrantPointerEntry”切片.如果尚未分配Grant区域,则这些驱动程序编号为零并且指针为空.
+    /// 当Grant区域被分配时,这些指针被更新以指向分配的内存,并且驱动程序编号被设置为匹配拥有Grant的驱动程序.
+    /// Tock 内核中不存在对这些指针的其他引用.
     grant_pointers: MapCell<&'static mut [GrantPointerEntry]>,
 
-    /// Pointer to the end of the allocated (and MPU protected) grant region.
+    /// 指向分配的（和 MPU 保护的）Grant区域结束的指针.
     kernel_memory_break: Cell<*const u8>,
 
-    /// Pointer to the end of process RAM that has been sbrk'd to the process.
+    /// 指向已被 sbrk 指向进程的进程 RAM 结束的指针.
     app_break: Cell<*const u8>,
 
-    /// Pointer to high water mark for process buffers shared through `allow`
+    /// 指向通过“允许”共享的进程缓冲区的high water mark的指针
     allow_high_water_mark: Cell<*const u8>,
 
-    /// Process flash segment. This is the region of nonvolatile flash that
-    /// the process occupies.
+    /// 处理闪存段.这是进程占用的非易失性闪存区域.
     flash: &'static [u8],
 
-    /// Collection of pointers to the TBF header in flash.
+    /// 指向闪存中 TBF 标头的指针集合.
     header: tock_tbf::types::TbfHeader,
 
-    /// State saved on behalf of the process each time the app switches to the
-    /// kernel.
+    /// 每次应用切换到内核时代表进程保存的状态.
     stored_state:
         MapCell<<<C as Chip>::UserspaceKernelBoundary as UserspaceKernelBoundary>::StoredState>,
 
-    /// The current state of the app. The scheduler uses this to determine
-    /// whether it can schedule this app to execute.
+    /// 应用程序的当前状态.调度器使用它来确定它是否可以调度这个应用程序来执行.
     ///
-    /// The `state` is used both for bookkeeping for the scheduler as well as
-    /// for enabling control by other parts of the system. The scheduler keeps
-    /// track of if a process is ready to run or not by switching between the
-    /// `Running` and `Yielded` states. The system can control the process by
-    /// switching it to a "stopped" state to prevent the scheduler from
-    /// scheduling it.
+    /// `state` 既用于调度程序的bookkeeping,也用于启用系统其他部分的控制.
+    /// 调度程序通过在 `Running` 和 `Yielded` 状态之间切换来跟踪进程是否准备好运行.
+    /// 系统可以通过将进程切换到“Stop”状态来控制进程，以防止调度程序对其进行调度.
     state: ProcessStateCell<'static>,
 
-    /// How to respond if this process faults.
+    /// 如果此过程出现故障如何响应.
     fault_policy: &'a dyn ProcessFaultPolicy,
 
-    /// Configuration data for the MPU
+    /// MPU 的配置数据
     mpu_config: MapCell<<<C as Chip>::MPU as MPU>::MpuConfig>,
 
-    /// MPU regions are saved as a pointer-size pair.
+    /// MPU 区域保存为指针大小对.
     mpu_regions: [Cell<Option<mpu::Region>>; 6],
 
-    /// Essentially a list of upcalls that want to call functions in the
-    /// process.
+    /// 本质上是想要在Process中调用函数的upcall列表.
     tasks: MapCell<RingBuffer<'a, Task>>,
 
-    /// Count of how many times this process has entered the fault condition and
-    /// been restarted. This is used by some `ProcessRestartPolicy`s to
-    /// determine if the process should be restarted or not.
+    /// 该进程进入故障状态并重新启动的次数.一些 `ProcessRestartPolicy`s 使用它来确定是否应该重新启动进程.
     restart_count: Cell<usize>,
 
-    /// The completion code set by the process when it last exited, restarted,
-    /// or was terminated. If the process is has never terminated, then the
-    /// `OptionalCell` will be empty (i.e. `None`). If the process has exited,
-    /// restarted, or terminated, the `OptionalCell` will contain an optional 32
-    /// bit value. The option will be `None` if the process crashed or was
-    /// stopped by the kernel and there is no provided completion code. If the
-    /// process called the exit syscall then the provided completion code will
-    /// be stored as `Some(completion code)`.
+    /// 进程上次退出、重新启动或终止时设置的完成代码.如果进程从未终止，则“OptionalCell”将为空(即"None").
+    /// 如果进程退出、重新启动或终止,"OptionalCell"将包含一个可选的 32 位值.如果进程崩溃或被内核停止并且没有提供返回值，
+    /// 则该选项将为"None".如果进程调用了exit，那么提供 return code将存储为“Some(completion code)”.
     completion_code: OptionalCell<Option<u32>>,
 
     /// Name of the app.
     process_name: &'static str,
 
-    /// Values kept so that we can print useful debug messages when apps fault.
+    /// 保留值，以便我们可以在应用程序出现故障时打印有用的调试消息.
     debug: MapCell<ProcessStandardDebug>,
 }
 
@@ -223,8 +193,7 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
     }
 
     fn enqueue_task(&self, task: Task) -> Result<(), ErrorCode> {
-        // If this app is in a `Fault` state then we shouldn't schedule
-        // any work for it.
+        // 如果App处于“Fault”状态，那么不应该为它安排任何工作.
         if !self.is_active() {
             return Err(ErrorCode::NODEVICE);
         }
@@ -236,8 +205,7 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
                     Ok(())
                 }
                 false => {
-                    // The task could not be enqueued as there is
-                    // insufficient space in the ring buffer.
+                    // 由于Ring buffer中的空间不足，任务无法入队.
                     Err(ErrorCode::NOMEM)
                 }
             }
@@ -246,8 +214,7 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
         if ret.is_ok() {
             self.kernel.increment_work();
         } else {
-            // On any error we were unable to enqueue the task. Record the
-            // error, but importantly do _not_ increment kernel work.
+            // 出现任何错误,我们都无法将任务排入队列.记录错误，但重要的是不要增加内核工作.
             self.debug.map(|debug| {
                 debug.dropped_upcall_count += 1;
             });
@@ -265,8 +232,7 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
         self.tasks.map(|tasks| {
             let count_before = tasks.len();
             tasks.retain(|task| match task {
-                // Remove only tasks that are function calls with an id equal
-                // to `upcall_id`.
+                // 仅删除 id 等于 `upcall_id` 的函数调用任务.
                 Task::FunctionCall(function_call) => match function_call.source {
                     FunctionCallSource::Kernel => true,
                     FunctionCallSource::Driver(id) => {
@@ -544,26 +510,19 @@ impl<C: Chip> Process for ProcessStandard<'_, C> {
             return Err(ErrorCode::FAIL);
         }
 
-        // A process is allowed to pass any pointer if the buffer length is 0,
-        // as to revoke kernel access to a memory region without granting access
-        // to another one
+        // 如果缓冲区长度为 0,则允许进程传递指针,以撤销内核对内存区域的访问，而不授予对另一个内存区域的访问权限
         if size == 0 {
-            // Clippy complains that we're dereferencing a pointer in a public
-            // and safe function here. While we are not dereferencing the
-            // pointer here, we pass it along to an unsafe function, which is as
-            // dangerous (as it is likely to be dereferenced down the line).
+            // Clippy 抱怨我们在这里取消引用公共和安全函数中的指针
+            // 虽然我们在这里没有取消引用指针,但我们将它传递给一个不安全的函数,这同样危险(因为它很可能被取消引用)
             //
             // Relevant discussion:
             // https://github.com/rust-lang/rust-clippy/issues/3045
             //
-            // It should be fine to ignore the lint here, as a buffer of length
-            // 0 will never allow dereferencing any memory in a safe manner.
+            // 在这里忽略 lint 应该没问题，因为长度为 0 的缓冲区永远不会允许以安全的方式取消引用任何内存.
             //
             // ### Safety
             //
-            // We specific a zero-length buffer, so the implementation of
-            // `ReadWriteProcessBuffer` will handle any safety issues.
-            // Therefore, we can encapsulate the unsafe.
+            // 我们指定了一个长度为零的缓冲区，因此 ReadWriteProcessBuffer 的实现将处理任何安全问题。 因此，我们可以封装不安全的.
             Ok(unsafe { ReadWriteProcessBuffer::new(buf_start_addr, 0, self.processid()) })
         } else if self.in_app_owned_memory(buf_start_addr, size) {
             // TODO: Check for buffer aliasing here

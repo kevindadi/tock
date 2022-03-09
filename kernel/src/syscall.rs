@@ -543,11 +543,11 @@ pub trait UserspaceKernelBoundary {
         state: &mut Self::StoredState,
     ) -> (ContextSwitchReason, Option<*const u8>);
 
-    /// 显示由该进程的存储状态标识的进程的体系结构特定（例如 CPU 寄存器或状态标志）数据。
+    /// 显示由该进程的存储状态标识的进程的体系结构特定(例如 CPU 寄存器或状态标志)数据.
     ///
     /// ### Safety
     ///
-    /// 该函数保证如果需要更改进程内存，它只会更改从 `accessible_memory_start` 和 `app_brk` 开始的内存。
+    /// 该函数保证如果需要更改进程内存,它只会更改从 `accessible_memory_start` 和 `app_brk` 开始的内存.
     /// 调用者负责保证这些指针对进程有效。
     unsafe fn print_context(
         &self,
@@ -557,6 +557,6 @@ pub trait UserspaceKernelBoundary {
         writer: &mut dyn Write,
     );
 
-    /// 存储进程的特定架构（例如 CPU 寄存器或状态标志）数据。 成功时返回写入输出的元素数。
+    /// 存储进程的特定架构(例如 CPU 寄存器或状态标志)数据.成功时返回写入输出的元素数。
     fn store_context(&self, state: &Self::StoredState, out: &mut [u8]) -> Result<usize, ErrorCode>;
 }
