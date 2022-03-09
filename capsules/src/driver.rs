@@ -1,4 +1,4 @@
-//! Mapping of capsules to their syscall driver number.
+//! 将capsule映射到它们的syscall驱动程序编号.
 
 use enum_primitive::cast::FromPrimitive;
 use enum_primitive::enum_from_primitive;
